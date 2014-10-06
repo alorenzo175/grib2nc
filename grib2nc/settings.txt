@@ -1,0 +1,12 @@
+[download_settings]
+;; from http://www.nco.ncep.noaa.gov/pmb/products/hrrr/
+html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
+ftp_host = ftp.ncep.noaa.gov
+ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
+folder = /home/tony/data/hrrr/
+
+[output_types]
+native = wrfnat
+pressure = wrfprs
+surface = wrfsfc
+subhourly = wrfsubh
