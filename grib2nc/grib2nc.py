@@ -18,6 +18,7 @@ try:
 except ImportError:
     import configparser
 import ftplib
+import shutil
 
 
 import numpy as np
@@ -25,6 +26,8 @@ import pandas as pd
 import requests
 import pygrib
 import netCDF4 as nc4
+
+from prepare_template import make_netcdf
 
 
 class Grib2NC(object):
@@ -80,19 +83,99 @@ class Grib2NC(object):
         return index_df
 
     def setup_netcdf(self):
-        self.ncfile = nc4.Dataset(os.path.join(self.base_path, self.ncfilename), 
-                              'w', format='NETCDF4')
-        self.ncfile.createDimension('Time', None)
-        self.ncfile.createDimension('time', 2)
-        self.ncfile.createDimension('DateStrLen', 19)
-        self.ncfile.createDimension('west_east', None)
-        self.ncfile.createDimension('south_north', None)
-        self.ncfile.createVariable('Times', 'S1', ('Time', 'DateStrLen'), zlib=True)
-        self.ncfile.createVariable('XLAT', 'f4', ('time', 'south_north', 'west_east'), zlib=True)
-        self.ncfile.createVariable('XLON', 'f4', ('time', 'south_north', 'west_east'), zlib=True)
-        for ncfield in self.config.options('surface_settings'):
-            self.ncfile.createVariable(ncfield, 'f4', ('Time', 'south_north', 'west_east'), zlib=True)
+        path = os.path.join(self.base_path, self.ncfilename)
+        make_netcdf(path)
+        self.ncfile = nc4.Dataset(path, 'a', format='NETCDF4')
 
+    def load_into_netcdf(self):
+        if not hasattr(self, 'ncfile'):
+            self.setup_netcdf()
+        
+        
+        field_dict = {}
+        relevant_df = None
+        for nc_field, grib_f in self.config.items('surface_settings'):
+            field, vertical_layer = grib_f.split(',')
+            field_dict[(field, vertical_layer)] = nc_field
+            if relevant_df is None:
+                relevant_df = self.index_df[
+                    (self.index_df['field'] == field) & 
+                    (self.index_df['vertical_layer'] == vertical_layer)]
+            else:
+                relevant_df = relevant_df.append(self.index_df[
+                    (self.index_df['field'] == field) & 
+                    (self.index_df['vertical_layer'] == vertical_layer)], 
+                                                 ignore_index=True)
+
+        relevant_df.set_index('filename', inplace=True)
+        times = []
+        for filename in sorted(relevant_df.index.unique()):
+            try:
+                grbs = pygrib.open(os.path.join(self.base_path, filename))
+            except IOError:
+                continue
+
+            for filename, series in relevant_df.loc[filename].iterrows():
+                try:
+                    grb = grbs[series.grib_level]
+                except IOError:
+                    continue
+
+                thetime = grb.validDate
+                if thetime not in times:
+                    timed = len(times)
+                    times.append(thetime)
+                else:
+                    timed = times.index(thetime)
+
+                self.ncfile.variables['Times'][timed] = nc4.stringtoarr(thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19)
+
+                nc_field = field_dict[(series.field, series.vertical_layer)].upper()
+
+                # check lat/lon
+                lats, lons = grb.latlons()
+                nclats = self.ncfile.variables['XLAT']
+                nclons = self.ncfile.variables['XLONG']
+
+                if isinstance(nclats[0], np.ma.core.MaskedArray):
+                    nclats[0] = lats
+                if isinstance(nclons[0], np.ma.core.MaskedArray):
+                    nclons[0] = lons
+                
+                if (np.abs(lats - nclats[0]) > 1e-5).any():
+                    self.logger.debug('Lats do not match')
+                    nclats[0] = lats
+                if (np.abs(lons - nclons[0]) > 1e-5).any():
+                    self.logger.debug('Lons do not match')
+                    nclons[0] = lons
+                
+                if nc_field not in self.ncfile.variables:
+                    self.ncfile.createVariable(nc_field, 'f4', ('Time', 
+                        'south_north', 'west_east'), zlib=True, complevel=1)
+                    var = self.ncfile.variables[nc_field]
+                    var.description = grb.name
+                    var.units = grb.units
+                    var.MemoryOrder = 'XY'
+                    var.FieldType = 104
+
+                var = self.ncfile.variables[nc_field]
+                var[timed] = grb.values
+        
+    def convert_time(self):
+        fhour = self.index_df['forecast_hour']
+        def conv(x):
+            if isinstance(x, float):
+                return x
+            if 'anl' in x:
+                return 0
+            elif 'hour' in x:
+                return x[:2]
+            else:
+                return np.nan
+
+        mapped_hour = fhour.map(lambda x: conv(x))
+        self.index_df['forecast_hour'] = mapped_hour
+        
     def convert(self):
         times = self.ncfile.variables['Times']
         fhs= self.index_df['forecast_hour'].unique()
@@ -110,14 +193,16 @@ class Grib2NC(object):
                     thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19)
                 times[len(times)] = row_time
 
-        lats = self.ncfile.variables['XLAT']
-        lons = self.ncfile.variables['XLON']
-
         for nc_field, grib_f in self.config.items('surface_settings'):
             field, vertical_layer = grib_f.split(',')
             relevant_df = self.index_df[(self.index_df['field'] == field) & 
                 (self.index_df['vertical_layer'] == vertical_layer)]
             relevant_df.set_index('filename', inplace=True)
+            try:
+                self.ncfile.createVariable(field, 'f4', ('Time', 'south_north', 'west_east'), zlib=True)
+            except Exception:
+                self.logger.exception('')
+            fvar = self.ncfile.variables[field]
             for filename, series in relevant_df.iterrows():
                 grbs = pygrib.open(os.path.join(self.base_path, filename))
 
@@ -125,24 +210,15 @@ class Grib2NC(object):
                     grb = grbs[series.grib_level]
                 except IOError:
                     continue
-                print grb.latlons()[0]
-                print grb.latlons()[1]
-                print grb.values.shape
 
-                data, lat, lon = grb.data(
-                    lat1=self.config.getfloat('subdomain', 'lat1'),
-                    lat2=self.config.getfloat('subdomain', 'lat2'),
-                    lon1=self.config.getfloat('subdomain', 'lon1'),
-                    lon2=self.config.getfloat('subdomain', 'lon2'))
-
-
-                print data.shape
-                lats[:] = lat
-                lons[:] = lon
-                fvar = self.ncfile.variables[field]
-                fvar[len(fvar),:,:] = data
+                lat, lon = grb.latlons()
+                lats = self.ncfile.variables['XLAT_M'][0,:]
+                print (lat == lats).all()
+                print lats.shape, lat.shape
+                print grb.values
+                fvar[len(fvar),:,:] = grb.values
                 grbs.close()
-
+                break
             
 
 
@@ -151,7 +227,9 @@ def main():
     g2nc = Grib2NC(dt.datetime(2014,10,5,1), 'surface')
     g2nc.read_index()
     g2nc.setup_netcdf()
-    g2nc.convert()
+    g2nc.convert_time()
+    print g2nc.ncfile.variables
+    g2nc.load_into_netcdf()
     g2nc.ncfile.close()
     return g2nc.index_df
 
