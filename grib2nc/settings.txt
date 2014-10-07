@@ -13,10 +13,10 @@ surface = wrfsfc
 subhourly = wrfsubh
 
 [subdomain]
-lat1 = 27
-lat2 = 35
-lon1 = -114
-lon2 = -108
+lat1 = 30
+lat2 = 38
+lon1 = -116
+lon2 = -102
 
 [surface_settings]
 T2 = TMP,2 m above ground

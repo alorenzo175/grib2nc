@@ -86,14 +86,52 @@ class Grib2NC(object):
         return index_df
 
     def setup_netcdf(self):
-        path = os.path.join(self.netcdf_path, self.ncfilename)
-        make_netcdf(path)
-        self.ncfile = nc4.Dataset(path, 'a', format='NETCDF4')
+        # first check the grid
+        if not hasattr(self, 'index_df'):
+            self.read_index()
 
+        for filename in sorted(self.index_df['filename'].unique()):
+            try:
+                grbs = pygrib.open(os.path.join(self.grib_path, filename))
+                grb = grbs[1]
+            except IOError:
+                continue
+            lats, lons = grb.latlons()
+
+            lat1 = self.config.getint('subdomain', 'lat1')
+            lat2 = self.config.getint('subdomain', 'lat2')
+            lon1 = self.config.getint('subdomain', 'lon1')
+            lon2 = self.config.getint('subdomain', 'lon2')
+
+            clons = lons[int(np.where((lats >= lat1) 
+                                      & (lats <= lat2)
+                                  )[0].mean()), :]
+            clats = lats[:,int(np.where((lons >= lon1 ) 
+                                        & (lons <= lon2))[0].mean())]
+            latlims = np.where((clats >= lat1) & (clats <= lat2))[0]
+            lonlims = np.where((clons >= lon1) & (clons <= lon2))[0]
+            grbs.close()
+            break
+        
+        self.max_lat = latlims.max() + 1
+        self.min_lat = latlims.min()
+        self.max_lon = lonlims.max() + 1
+        self.min_lon = lonlims.min()
+
+        path = os.path.join(self.netcdf_path, self.ncfilename)
+        make_netcdf(path, self.max_lat-self.min_lat,
+                    self.max_lon-self.min_lon)
+        self.ncfile = nc4.Dataset(path, 'a', format='NETCDF4')
+        nclats = self.ncfile.variables['XLAT']
+        nclons = self.ncfile.variables['XLONG']
+        nclats[0] = lats[self.min_lat:self.max_lat,
+                         self.min_lon:self.max_lon]
+        nclons[0] = lons[self.min_lat:self.max_lat,
+                         self.min_lon:self.max_lon]
+        
     def load_into_netcdf(self):
         if not hasattr(self, 'ncfile'):
             self.setup_netcdf()
-        
         
         field_dict = {}
         relevant_df = None
@@ -135,23 +173,6 @@ class Grib2NC(object):
 
                 nc_field = field_dict[(series.field, series.vertical_layer)].upper()
 
-                # check lat/lon
-                lats, lons = grb.latlons()
-                nclats = self.ncfile.variables['XLAT']
-                nclons = self.ncfile.variables['XLONG']
-
-                if isinstance(nclats[0], np.ma.core.MaskedArray):
-                    nclats[0] = lats
-                if isinstance(nclons[0], np.ma.core.MaskedArray):
-                    nclons[0] = lons
-                
-                if (np.abs(lats - nclats[0]) > 1e-5).any():
-                    self.logger.debug('Lats do not match')
-                    nclats[0] = lats
-                if (np.abs(lons - nclons[0]) > 1e-5).any():
-                    self.logger.debug('Lons do not match')
-                    nclons[0] = lons
-                
                 if nc_field not in self.ncfile.variables:
                     self.ncfile.createVariable(nc_field, 'f4', ('Time', 
                         'south_north', 'west_east'), zlib=True, complevel=1)
@@ -162,7 +183,8 @@ class Grib2NC(object):
                     var.FieldType = 104
 
                 var = self.ncfile.variables[nc_field]
-                var[timed] = grb.values
+                var[timed] = grb.values[self.min_lat:self.max_lat,
+                                        self.min_lon:self.max_lon]
         
 
 def main():
