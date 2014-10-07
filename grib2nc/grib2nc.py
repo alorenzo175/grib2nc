@@ -49,19 +49,22 @@ class Grib2NC(object):
                                       init_time.strftime('%Y'),
                                       init_time.strftime('%m'),
                                       init_time.strftime('%d'),
-                                      init_time.strftime('%Hz'),
-                                      'grib')
-        if not os.path.isdir(self.base_path):
-            os.makedirs(self.base_path)
+                                      init_time.strftime('%Hz'))
+        self.grib_path = os.path.join(self.base_path, 'grib')
+        self.netcdf_path = os.path.join(self.base_path, 'netcdf')
+        if not os.path.isdir(self.grib_path):
+            os.makedirs(self.grib_path)
+        if not os.path.isdir(self.netcdf_path):
+            os.makedirs(self.netcdf_path)
         self.ncfilename = 'hrrr.{init_time}.{level}.nc'.format(
             init_time=init_time.strftime('%Y%m%d%H'), level=level)
 
     def read_index(self):
-        idx_files = [afile for afile in os.listdir(self.base_path) 
+        idx_files = [afile for afile in os.listdir(self.grib_path) 
                      if afile.endswith('.idx')]
         index_df = None
         for idx_file in sorted(idx_files):
-            grib_file_desc =  pd.read_table(os.path.join(self.base_path, 
+            grib_file_desc =  pd.read_table(os.path.join(self.grib_path,
                                                          idx_file), 
                                             sep=':', engine='c', 
                                             lineterminator='\n', header=None, 
@@ -83,7 +86,7 @@ class Grib2NC(object):
         return index_df
 
     def setup_netcdf(self):
-        path = os.path.join(self.base_path, self.ncfilename)
+        path = os.path.join(self.netcdf_path, self.ncfilename)
         make_netcdf(path)
         self.ncfile = nc4.Dataset(path, 'a', format='NETCDF4')
 
@@ -111,7 +114,7 @@ class Grib2NC(object):
         times = []
         for filename in sorted(relevant_df.index.unique()):
             try:
-                grbs = pygrib.open(os.path.join(self.base_path, filename))
+                grbs = pygrib.open(os.path.join(self.grib_path, filename))
             except IOError:
                 continue
 
@@ -161,74 +164,12 @@ class Grib2NC(object):
                 var = self.ncfile.variables[nc_field]
                 var[timed] = grb.values
         
-    def convert_time(self):
-        fhour = self.index_df['forecast_hour']
-        def conv(x):
-            if isinstance(x, float):
-                return x
-            if 'anl' in x:
-                return 0
-            elif 'hour' in x:
-                return x[:2]
-            else:
-                return np.nan
-
-        mapped_hour = fhour.map(lambda x: conv(x))
-        self.index_df['forecast_hour'] = mapped_hour
-        
-    def convert(self):
-        times = self.ncfile.variables['Times']
-        fhs= self.index_df['forecast_hour'].unique()
-        for fh in fhs:
-            if isinstance(fh, float):
-                continue
-            if 'hour' in fh and '-' not in fh:
-                thetime = self.init_time + dt.timedelta(hours=int(fh[:2]))
-            elif 'anl' in fh:
-                thetime = self.init_time
-            else:
-                thetime = None
-            if thetime is not None:
-                row_time = nc4.stringtoarr(
-                    thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19)
-                times[len(times)] = row_time
-
-        for nc_field, grib_f in self.config.items('surface_settings'):
-            field, vertical_layer = grib_f.split(',')
-            relevant_df = self.index_df[(self.index_df['field'] == field) & 
-                (self.index_df['vertical_layer'] == vertical_layer)]
-            relevant_df.set_index('filename', inplace=True)
-            try:
-                self.ncfile.createVariable(field, 'f4', ('Time', 'south_north', 'west_east'), zlib=True)
-            except Exception:
-                self.logger.exception('')
-            fvar = self.ncfile.variables[field]
-            for filename, series in relevant_df.iterrows():
-                grbs = pygrib.open(os.path.join(self.base_path, filename))
-
-                try:
-                    grb = grbs[series.grib_level]
-                except IOError:
-                    continue
-
-                lat, lon = grb.latlons()
-                lats = self.ncfile.variables['XLAT_M'][0,:]
-                print (lat == lats).all()
-                print lats.shape, lat.shape
-                print grb.values
-                fvar[len(fvar),:,:] = grb.values
-                grbs.close()
-                break
-            
-
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    g2nc = Grib2NC(dt.datetime(2014,10,5,1), 'surface')
+    g2nc = Grib2NC(dt.datetime(2014,10,7,1), 'surface')
     g2nc.read_index()
     g2nc.setup_netcdf()
-    g2nc.convert_time()
-    print g2nc.ncfile.variables
     g2nc.load_into_netcdf()
     g2nc.ncfile.close()
     return g2nc.index_df
