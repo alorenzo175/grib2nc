@@ -10,3 +10,18 @@ native = wrfnat
 pressure = wrfprs
 surface = wrfsfc
 subhourly = wrfsubh
+
+[subdomain]
+lat1 = 27
+lat2 = 35
+lon1 = -114
+lon2 = -108
+
+[surface_settings]
+T2 = TMP,2 m above ground
+U10 = UGRD,10 m above ground
+V10 = VGRD,10 m above ground
+U80 = UGRD,80 m above ground
+V80 = VGRD,80 m above ground
+SWDNB = DSWRF,surface
+DPT = DPT,2 m above ground
