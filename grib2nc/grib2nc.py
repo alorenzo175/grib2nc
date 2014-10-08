@@ -42,8 +42,10 @@ class Grib2NC(object):
         if level not in self.hrrr_type_dict:
             raise Exception
         else:
-            self.level = level
+            self.level = self.hrrr_type_dict[level]
         self.init_time = init_time
+        self.grib_vars = self.config.items(
+            '{level}_settings'.format(level=level))
 
         self.base_path = os.path.join(self.download_dict['folder'], 
                                       init_time.strftime('%Y'),
@@ -61,7 +63,7 @@ class Grib2NC(object):
 
     def read_index(self):
         idx_files = [afile for afile in os.listdir(self.grib_path) 
-                     if afile.endswith('.idx')]
+                     if afile.endswith('.idx') and self.level in afile]
         index_df = None
         for idx_file in sorted(idx_files):
             grib_file_desc =  pd.read_table(os.path.join(self.grib_path,
@@ -135,18 +137,28 @@ class Grib2NC(object):
         
         field_dict = {}
         relevant_df = None
-        for nc_field, grib_f in self.config.items('surface_settings'):
+        for nc_field, grib_f in self.grib_vars:
             field, vertical_layer = grib_f.split(',')
-            field_dict[(field, vertical_layer)] = nc_field
-            if relevant_df is None:
-                relevant_df = self.index_df[
-                    (self.index_df['field'] == field) & 
-                    (self.index_df['vertical_layer'] == vertical_layer)]
+            if vertical_layer is not '':
+                field_dict[(field, vertical_layer)] = nc_field
+                if relevant_df is None:
+                    relevant_df = self.index_df[
+                        (self.index_df['field'] == field) & 
+                        (self.index_df['vertical_layer'] == vertical_layer)]
+                else:
+                    relevant_df = relevant_df.append(self.index_df[
+                        (self.index_df['field'] == field) & 
+                        (self.index_df['vertical_layer'] == vertical_layer)], 
+                                                     ignore_index=True)
             else:
-                relevant_df = relevant_df.append(self.index_df[
-                    (self.index_df['field'] == field) & 
-                    (self.index_df['vertical_layer'] == vertical_layer)], 
-                                                 ignore_index=True)
+                field_dict[field] = nc_field
+                if relevant_df is None:
+                    relevant_df = self.index_df[
+                        (self.index_df['field'] == field)]
+                else:
+                    relevant_df = relevant_df.append(self.index_df[
+                        (self.index_df['field'] == field)]
+                                                     ,ignore_index=True)
 
         relevant_df.set_index('filename', inplace=True)
         times = []
@@ -171,7 +183,14 @@ class Grib2NC(object):
 
                 self.ncfile.variables['Times'][timed] = nc4.stringtoarr(thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19)
 
-                nc_field = field_dict[(series.field, series.vertical_layer)].upper()
+                if (series.field, series.vertical_layer) in field_dict:
+                    nc_field = field_dict[(series.field, 
+                                           series.vertical_layer)].upper()
+                elif series.field in field_dict:
+                    nc_field = field_dict[series.field].upper()
+                else:
+                    self.logger.warning("Why is this file open?")
+                    continue
 
                 if nc_field not in self.ncfile.variables:
                     self.ncfile.createVariable(nc_field, 'f4', ('Time', 
@@ -189,7 +208,7 @@ class Grib2NC(object):
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    g2nc = Grib2NC(dt.datetime(2014,10,7,1), 'surface')
+    g2nc = Grib2NC(dt.datetime(2014,10,7,1), 'subhourly')
     g2nc.read_index()
     g2nc.setup_netcdf()
     g2nc.load_into_netcdf()

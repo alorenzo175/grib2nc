@@ -141,8 +141,8 @@ class Fetcher(object):
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    f = Fetcher(dt.datetime(2014,10,7,1), 'surface')
-    f.read_index_ftp()
+    f = Fetcher(dt.datetime(2014,10,7,1), 'subhourly')
+    #f.read_index_ftp()
     f.fetch_ftp()
 
 
