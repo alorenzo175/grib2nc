@@ -246,18 +246,16 @@ def main():
     argparser.add_argument('-p', '--protocol', help='Download protocol',
                            choices=['ftp', 'http'], default='ftp')
     argparser.add_argument('-c', '--config', help='Config file path')
-    argparser.add_argument('-l', '--level', help='HRRR level subtype',
-                           choices=['surface', 'subhourly','pressure', 
-                                    'native'],
-                           default='subhourly')
-    argparser.add_argument('-r', '--remove', 
-                           help='Remove grib files after conversion',
-                           action='store_true')
+    argparser.add_argument('-l', '--level', default='subhourly',
+                           help='HRRR level subtype; split multiple with commas')
+    argparser.add_argument('-r', '--remove', action='store_true',
+                           help='Remove grib files after conversion')
     argparser.add_argument('--no-convert', action='store_true',
                            help="Don't convert the grib files to netCDF")
     argparser.add_argument('--no-overwrite', action='store_false',
                            help="Don't overwrite any files already downloaded")
-    argparser.add_argument('INITDT', help='Initilization datetime')
+    argparser.add_argument('INITDT', 
+        help='Initilization datetime; split multiple with commas')
     args = argparser.parse_args()
     
     if args.verbose == 1:
@@ -265,20 +263,22 @@ def main():
     elif args.verbose > 1:
         logging.getLogger().setLevel(logging.DEBUG)
         
-    f = HRRRFetcher(args.INITDT, args.level, args.protocol, 
-                    args.config)
-    f.fetch(overwrite=args.no_overwrite)
+    for atime in args.INITDT.split(','):
+        for alevel in args.level.split(','):
+            f = HRRRFetcher(atime, alevel, args.protocol, 
+                            args.config)
+            f.fetch(overwrite=args.no_overwrite)
 
-    if not args.no_convert:
-        from grib2nc import Grib2NC
-        g2nc = Grib2NC(f.init_time, f.level, f.config_path)
-        g2nc.load_into_netcdf()
+            if not args.no_convert:
+                from grib2nc import Grib2NC
+                g2nc = Grib2NC(f.init_time, f.level, f.config_path)
+                g2nc.load_into_netcdf()
 
-    if args.remove and not args.no_convert:
-        for apath in f.downloaded_files:
-            os.remove(apath)
-            if not os.listdir(os.path.dirname(apath)):
-                os.rmdir(os.path.dirname(apath))
+            if args.remove and not args.no_convert:
+                for apath in f.downloaded_files:
+                    os.remove(apath)
+                    if not os.listdir(os.path.dirname(apath)):
+                        os.rmdir(os.path.dirname(apath))
             
 
 def exceptionlogging(*exc_info):
