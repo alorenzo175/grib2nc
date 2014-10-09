@@ -14,9 +14,7 @@ XLONG_DICT = {'FieldType':104, 'MemoryOrder':"XY",
 XLAT_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
               'stagger':"", 'units':'degree_north',
               'description':"LATITUDE, SOUTH IS NEGATIVE"}
-PRES_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
-             'stagger':"", 'units':'mb',
-             'description':"PRESSURE, ASSUME PB = 0"}
+
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', 
@@ -52,9 +50,6 @@ def make_netcdf(ncfilename='base.nc', nlats=1059, nlons=1799, vertical=False,
     netc.createDimension('DateStrLen', 19)
     if vertical:
         netc.createDimension('bottom_top', nvert)
-        pres = netc.createVariable('P', 'f4', ('time', 'bottom_top', 'south_north',
-            'west_east'),zlib=True, complevel=1)
-        pres.setncatts(PRES_DICT)
 
     netc.createVariable('Times', 'S1', ('Time', 'DateStrLen'), 
                         zlib=True, complevel=1)
@@ -66,6 +61,24 @@ def make_netcdf(ncfilename='base.nc', nlats=1059, nlons=1799, vertical=False,
     lats.setncatts(XLAT_DICT)
     netc.sync()
     netc.close()
+
+
+def add_variable(netcdf_dataset, var_name, field_type=104, mem_order="XY",
+                 stagger='', units='', description='', dformat='f4',
+                 vertical=False):
+    netc = netcdf_dataset
+    if vertical:
+        var = netc.createVariable(var_name, dformat, ('Time', 'bottom_top', 
+            'south_north', 'west_east'), zlib=True, complevel=1)
+    else:
+        var = netc.createVariable(var_name, dformat, ('Time', 
+            'south_north', 'west_east'), zlib=True, complevel=1)
+    var.description = description
+    var.units = units
+    var.MemoryOrder = mem_order
+    var.FieldType = field_type
+    var.stagger = stagger
+    netc.sync()
 
 
 if __name__ == '__main__':

@@ -27,7 +27,7 @@ import requests
 import pygrib
 import netCDF4 as nc4
 
-from prepare_template import make_netcdf
+from prepare_template import make_netcdf, add_variable
 
 
 class Grib2NC(object):
@@ -171,6 +171,7 @@ class Grib2NC(object):
                         (self.index_df['field'] == field)]
                                                      ,ignore_index=True)
 
+
         relevant_df.set_index('filename', inplace=True)
         times = []
         levels = []
@@ -212,18 +213,8 @@ class Grib2NC(object):
 
 
                 if nc_field not in self.ncfile.variables:
-                    if not self.vertical:
-                        self.ncfile.createVariable(nc_field, 'f4', ('Time', 
-                            'south_north', 'west_east'), zlib=True, complevel=1)
-                    else:
-                        self.ncfile.createVariable(nc_field, 'f4', ('Time', 
-                            'bottom_top', 'south_north', 'west_east'), 
-                            zlib=True, complevel=1)
-                    var = self.ncfile.variables[nc_field]
-                    var.description = grb.name
-                    var.units = grb.units
-                    var.MemoryOrder = 'XY'
-                    var.FieldType = 104
+                    add_variable(self.ncfile, nc_field, description=grb.name,
+                                 units=grb.units, vertical=self.vertical)
 
                 var = self.ncfile.variables[nc_field]
                 if not self.vertical:
@@ -238,6 +229,10 @@ class Grib2NC(object):
                         self.logger.debug('Error with leveld = %s and var = %s' % (leveld, grb.cfName))
                     else:
                         if self.level == 'wrfprs':
+                            if 'P' not in self.ncfile.variables:
+                                add_variable(self.ncfile, 'P', units='mb', 
+                                             vertical=True)
+
                             self.ncfile.variables['P'][timed, leveld] = (
                                 np.ones(ivals.shape) * grb.level)
                         
@@ -247,7 +242,7 @@ class Grib2NC(object):
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    g2nc = Grib2NC(dt.datetime(2014,10,7,0), 'pressure')
+    g2nc = Grib2NC(dt.datetime(2014,10,7,2), 'native')
     g2nc.read_index()
     g2nc.setup_netcdf()
     g2nc.load_into_netcdf()
