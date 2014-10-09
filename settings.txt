@@ -3,8 +3,8 @@
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
-grib_base_folder = /home/tony/data/hrrr/{year}/{month}/{day}/hrrr/{hour}z/grib/
-netcdf_base_folder = /home/tony/data/hrrr/{year}/{month}/{day}/hrrr/{hour}z/
+grib_base_folder = /tmp/hrrr/grib/{year}/{month}/{day}/{hour}z/
+netcdf_base_folder = /home/pas/wrf_forecast/{year}/{month}/{day}/hrrr/{hour}z/
 workers = 8
 
 [output_types]
@@ -27,6 +27,20 @@ U80 = UGRD,80 m above ground
 V80 = VGRD,80 m above ground
 SWDNB = DSWRF,surface
 TD2 = DPT,2 m above ground
+VIS =VIS,surface
+LWP = VIL,entire atmosphere
+HGT500 = HGT,500 mb
+T500 = TMP,500 mb
+TD500 = DPT,500 mb
+U500 = UGRD,500 mb
+V500 = VGRD,500 mb
+LTNG = LTNG,surface
+PSFC = PRES,surface
+PRCPR = PRATE,surface
+PRCP = APCP,surface
+CLDFRA = TCDC,entire atmosphere
+CAPE = CAPE,180-0 mb above ground
+PBLH = HPBL,surface
 
 [subhourly_settings]
 T2 = TMP,2 m above ground

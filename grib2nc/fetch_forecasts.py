@@ -51,10 +51,10 @@ class HRRRFetcher(object):
     def __init__(self, init_time, level, method='ftp', config_path=None):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
-        config_path = config_path or os.path.join(
-            os.path.dirname(os.path.realpath('__file__')),
-            '../settings.txt')
-        self.config.read(config_path)
+        self.config_path = config_path or os.path.join(
+            os.path.dirname(os.path.realpath('__file__')),'..'
+            'settings.txt')
+        self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
         if level not in self.hrrr_type_dict:
@@ -255,6 +255,8 @@ def main():
                            action='store_true')
     argparser.add_argument('--no-convert', action='store_true',
                            help="Don't convert the grib files to netCDF")
+    argparser.add_argument('--no-overwrite', action='store_false',
+                           help="Don't overwrite any files already downloaded")
     argparser.add_argument('INITDT', help='Initilization datetime')
     args = argparser.parse_args()
     
@@ -265,11 +267,11 @@ def main():
         
     f = HRRRFetcher(args.INITDT, args.level, args.protocol, 
                     args.config)
-    f.fetch()
+    f.fetch(overwrite=args.no_overwrite)
 
     if not args.no_convert:
         from grib2nc import Grib2NC
-        g2nc = Grib2NC(f.init_time, f.level)
+        g2nc = Grib2NC(f.init_time, f.level, f.config_path)
         g2nc.load_into_netcdf()
 
     if args.remove and not args.no_convert:

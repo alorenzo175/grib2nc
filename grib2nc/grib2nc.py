@@ -36,12 +36,13 @@ class Grib2NC(object):
         The HRRR forecast "level" i.e. surface, native, pressures, or subhourly
     """
     
-    def __init__(self, init_time, level):
+    def __init__(self, init_time, level, config_path=None):
         self.logger = logging.getLogger()
         self.config = configparser.ConfigParser()
-        self.config.read(os.path.join(
-            os.path.dirname(os.path.realpath('__file__')),
-            '../settings.txt'))
+        self.config_path = config_path or os.path.join(
+            os.path.dirname(os.path.realpath('__file__')),'..',
+            'settings.txt')
+        self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
         if level not in self.hrrr_type_dict:
