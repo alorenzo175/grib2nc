@@ -17,8 +17,6 @@ try:
     import ConfigParser as configparser
 except ImportError:
     import configparser
-import ftplib
-import shutil
 
 
 import numpy as np
@@ -26,6 +24,7 @@ import pandas as pd
 import requests
 import pygrib
 import netCDF4 as nc4
+
 
 from prepare_template import make_netcdf, add_variable
 

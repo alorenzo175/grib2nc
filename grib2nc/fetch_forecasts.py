@@ -17,11 +17,6 @@ try:
     import ConfigParser as configparser
 except ImportError:
     import configparser
-import ftplib
-
-
-import pandas as pd
-import requests
 
 
 class RequestError(Exception):
@@ -52,98 +47,146 @@ class Fetcher(object):
                                       init_time.strftime('%d'),
                                       init_time.strftime('%Hz'),
                                       'grib')
+            
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
 
     def connect_ftp(self):
+        try:
+            import ftplib
+        except ImportError:
+            raise ImportError('FTP requires the ftplib module')
         self.ftp = ftplib.FTP(self.download_dict['ftp_host'])
         self.ftp.login()
         self.ftp.cwd(self.download_dict['ftp_dir'])
         stored_days = self.ftp.nlst()
         it_date = self.init_time.strftime('hrrr.%Y%m%d')
         if it_date not in stored_days:
-            raise RequestError('Requested forecast initilization day not on NCEP server')
+            raise RequestError('Requested forecast initilization day '+
+                               'not on NCEP server')
         self.ftp.cwd(it_date)
 
-    def read_index_ftp(self):
-        self.fetch_ftp('grib2.idx', False)
-        idx_files = [afile for afile in os.listdir(self.base_path) 
-                     if afile.endswith('.idx')]
-        
-        self.index_panel = None
-        for idx_file in sorted(idx_files):
-            grib_file_desc =  pd.read_table(os.path.join(self.base_path, 
-                                                         idx_file), 
-                                            sep=':', engine='c', 
-                                            lineterminator='\n', header=None, 
-                                            names=['grib_level','start_byte', 
-                                                   'init_time', 'field', 
-                                                   'vertical_layer', 
-                                                   'forecast_hour', 'end_byte'],
-                                            index_col=False)
-            grib_file_desc['end_byte'] = grib_file_desc.start_byte.shift(-1) - 1
-            grib_file_desc.set_index('field', inplace=True)
-            if self.index_panel is None:
-                self.index_panel = pd.Panel({idx_file[:-4]:grib_file_desc})
-            else:
-                self.index_panel[idx_file[:-4]] = grib_file_desc
-
-        return self.index_panel
-        
     def fetch_ftp(self, extension='grib2', overwrite=True):
         if not hasattr(self, 'ftp'):
             self.connect_ftp()
-        base_name = 'hrrr.t{init_hour}z.{level}f*.{extension}'.format(
-            init_hour=self.init_time.strftime('%H'), 
+        forecast_name ='hrrr.t{init_hour}z.{level}f*.{extension}'.format(
+            init_hour=self.init_time.strftime('%H'),
             level=self.hrrr_type_dict[self.level],
             extension=extension)
-        files = self.ftp.nlst(base_name)
-        total_size = 0
+
+        files = self.ftp.nlst(forecast_name)
+        total_size = []
+        expected_size = 0
+        nfiles = 0
         for afile in files:
-            total_size += self.ftp.size(afile)
-        self.logger.info('Attempting to retrieve %s bytes of data' % total_size)
+            expected_size += self.ftp.size(afile)
+        self.logger.info(('Attempting to retrieve %0.2f MB of data in %s'+
+                         ' files over FTP')
+                         % ((1.0*expected_size/1024**2), len(files)))
         start = time.time()
         for afile in files:
+            self.logger.debug('Retrieving %s' % afile)
             local_path = os.path.join(self.base_path,  afile)
             if os.path.isfile(local_path) and not overwrite:
+                self.logger.warning('%s already exists!' % afile)
                 continue
             with open(local_path, 'wb') as f:
                 def callback(data):
                     f.write(data)
-                self.ftp.retrbinary('RETR %s' % afile, callback)
+                    total_size.append(len(data))
+                try:
+                    self.ftp.retrbinary('RETR %s' % afile, callback)
+                except KeyboardInterrupt:
+                    break
+            nfiles += 1
         end = time.time()
-        self.logger.info('Retrieved %s files in %s seconds' % (len(files), 
+        total_size = sum(total_size)
+        self.logger.info('Retrieved %s files in %s seconds' % (nfiles, 
                                                                end-start))
+        self.logger.info('Download rate: %0.2f MB/s' % 
+                         (1.0*total_size/1024**2/(end-start)))
         self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
 
-    def partial_fields_http(self, field, chunk_size=4098):
-        to_retrieve = self.index_panel.iloc[0].loc[field]
-        afile = self.index_panel.items[0]
+    def fetch_html(self, extension='grib2', overwrite=True):
+        try:
+            import requests
+            import pandas as pd
+        except ImportError:
+            raise ImportError('HTTP requires the requests and BeautifulSoup4')
 
-        start = time.time()
-        for i in range(len(to_retrieve)):
-            df = to_retrieve.iloc[i]
-            grib_level = df.grib_level
-            local_path = os.path.join(self.base_path, afile + '.%s.%s' % 
-                                      (field, grib_level))
-            url = (self.download_dict['html_site'] + 
-                   self.init_time.strftime('hrrr.%Y%m%d') + 
-                   '/' + afile)
-            headers = {'range': 'bytes=%s-%s' % (df.start_byte, df.end_byte)}
-            r = requests.get(url, headers=headers, stream=True)
-            with open(local_path, 'wb') as fd:
-                for chunk in r.iter_content(chunk_size):
-                    fd.write(chunk)
-            break
-        end = time.time()
-        self.logger.info('Retrieved files in %s seconds' % (end-start))
+        forecast_name ='hrrr.t{init_hour}z.{level}f'.format(
+            init_hour=self.init_time.strftime('%H'),
+            level=self.hrrr_type_dict[self.level],
+            extension=extension)
         
+        html_folder = (self.download_dict['html_site'] + 
+            'hrrr.{dtime}'.format(dtime=self.init_time.strftime('%Y%m%d')))
+
+        session = requests.Session()
+        forecast_table = session.get(html_folder)
+
+        if forecast_table.status_code != 200:
+            raise RequestError('Invalid URL/date')
+            
+        table = pd.io.html.read_html(forecast_table.content,
+                                     header=0, parse_dates=True,
+                                     infer_types=False)[0]
+        
+        files_df= table[table['Name'].str.contains(
+            forecast_name)]
+        
+        def process_size(size):
+            if size.endswith('K'):
+                out = float(size[:-1])*1024
+            elif size.endswith('M'):
+                out = float(size[:-1])*1024**2
+            else:
+                out = float(size)
+            return out
+
+        expected_size = files_df['Size'].map(process_size).sum()
+        self.logger.info('Downloading %0.2f MB of data' 
+                         % (1.0*expected_size/1024**2))
+        start = time.time()
+        total_size = 0
+        nfiles = 0
+        for filename in files_df['Name']:
+            self.logger.debug('Retrieving %s' % filename)
+            local_path = os.path.join(self.base_path,  filename)
+            if os.path.isfile(local_path) and not overwrite:
+                self.logger.warning('Failed to retrieve %s' % filename)
+                continue
+            try:
+                r = session.get(html_folder + '/' + filename, stream=True)
+
+                with open(local_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024):
+                        if chunk:
+                            f.write(chunk)
+                            f.flush()
+                            total_size += len(chunk)
+                nfiles += 1
+            except KeyboardInterrupt:
+                break
+
+        end = time.time()
+        self.logger.info('Retrieved %s files in %s seconds' % 
+                         (nfiles, end-start))
+        self.logger.info('Download rate: %0.2f MB/s' % 
+                         (1.0*total_size/1024**2/(end-start)))
+        self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
+
+        
+
+    def close(self):
+        if hasattr(self, 'ftp'):
+            self.ftp.close()
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    f = Fetcher(dt.datetime(2014,10,7,1), 'subhourly')
-    #f.read_index_ftp()
+    f = Fetcher(dt.datetime(2014,10,8,0), 'subhourly')
     f.fetch_ftp()
+    f.close()
 
 
 def exceptionlogging(*exc_info):
