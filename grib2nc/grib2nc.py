@@ -41,7 +41,7 @@ class Grib2NC(object):
         self.config = configparser.ConfigParser()
         self.config.read(os.path.join(
             os.path.dirname(os.path.realpath('__file__')),
-            'settings.txt'))
+            '../settings.txt'))
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
         if level not in self.hrrr_type_dict:

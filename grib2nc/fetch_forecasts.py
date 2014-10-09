@@ -53,7 +53,7 @@ class HRRRFetcher(object):
         self.config = configparser.ConfigParser()
         config_path = config_path or os.path.join(
             os.path.dirname(os.path.realpath('__file__')),
-            'settings.txt')
+            '../settings.txt')
         self.config.read(config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
