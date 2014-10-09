@@ -13,6 +13,7 @@ import logging
 import traceback
 import datetime as dt
 import time
+import argparse
 try:
     import ConfigParser as configparser
 except ImportError:
@@ -26,32 +27,53 @@ class RequestError(Exception):
         return repr(self.value)
 
 
-class Fetcher(object):
-    def __init__(self, init_time, level, method='ftp'):
-        self.logger = logging.getLogger()
+class HRRRFetcher(object):
+    def __init__(self, init_time, level, method='ftp', config_path=None):
+        self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
-        self.config.read(os.path.join(
+        config_path = config_path or os.path.join(
             os.path.dirname(os.path.realpath('__file__')),
-            'settings.txt'))
+            'settings.txt')
+        self.config.read(config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
         if level not in self.hrrr_type_dict:
             raise Exception
         else:
             self.level = level
-        self.init_time = init_time
+        
+        if isinstance(init_time, str):
+            try:
+                import dateutil.parser as dparser
+            except ImportError:
+                raise ImportError(
+                    'dateutil is required for string datetime input')
+            self.init_time = dparser.parse(init_time)
+        elif isinstance(init_time, dt.datetime):
+            self.init_time = init_time
+        else:
+            raise TypeError('init_time must be a datetime string or datetime object')
 
+        self.default_method = method
         self.base_path = os.path.join(self.download_dict['folder'], 
-                                      init_time.strftime('%Y'),
-                                      init_time.strftime('%m'),
-                                      init_time.strftime('%d'),
-                                      init_time.strftime('%Hz'),
+                                      self.init_time.strftime('%Y'),
+                                      self.init_time.strftime('%m'),
+                                      self.init_time.strftime('%d'),
+                                      self.init_time.strftime('%Hz'),
                                       'grib')
             
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
 
-    def connect_ftp(self):
+    def fetch(self, init_time=None, level=None, overwrite=True):
+        if self.default_method == 'ftp':
+            return self.fetch_ftp(init_time, level, overwrite)
+        elif self.default_method == 'http':
+            return self.fetch_http(init_time, level, overwrite)
+        else:
+            raise AttributeError('Method must be ftp or http')
+
+    def connect_ftp(self, init_time=None):
         try:
             import ftplib
         except ImportError:
@@ -60,19 +82,22 @@ class Fetcher(object):
         self.ftp.login()
         self.ftp.cwd(self.download_dict['ftp_dir'])
         stored_days = self.ftp.nlst()
-        it_date = self.init_time.strftime('hrrr.%Y%m%d')
+        init_time = init_time or self.init_time
+        it_date = init_time.strftime('hrrr.%Y%m%d')
         if it_date not in stored_days:
             raise RequestError('Requested forecast initilization day '+
                                'not on NCEP server')
         self.ftp.cwd(it_date)
 
-    def fetch_ftp(self, extension='grib2', overwrite=True):
+    def fetch_ftp(self, init_time=None, level=None, overwrite=True):
+        level = level or self.level
+        init_time = init_time or self.init_time
         if not hasattr(self, 'ftp'):
-            self.connect_ftp()
-        forecast_name ='hrrr.t{init_hour}z.{level}f*.{extension}'.format(
-            init_hour=self.init_time.strftime('%H'),
-            level=self.hrrr_type_dict[self.level],
-            extension=extension)
+            self.connect_ftp(init_time)
+
+        forecast_name ='hrrr.t{init_hour}z.{level}f*'.format(
+            init_hour=init_time.strftime('%H'),
+            level=self.hrrr_type_dict[level])
 
         files = self.ftp.nlst(forecast_name)
         total_size = []
@@ -107,23 +132,27 @@ class Fetcher(object):
                          (1.0*total_size/1024**2/(end-start)))
         self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
 
-    def fetch_html(self, extension='grib2', overwrite=True):
+    def fetch_http(self, init_time=None, level=None, overwrite=True):
         try:
             import requests
             import pandas as pd
         except ImportError:
             raise ImportError('HTTP requires the requests and BeautifulSoup4')
 
+        init_time = init_time or self.init_time
+        level = level or self.level
+
         forecast_name ='hrrr.t{init_hour}z.{level}f'.format(
-            init_hour=self.init_time.strftime('%H'),
-            level=self.hrrr_type_dict[self.level],
-            extension=extension)
+            init_hour=init_time.strftime('%H'),
+            level=self.hrrr_type_dict[level])
         
         html_folder = (self.download_dict['html_site'] + 
-            'hrrr.{dtime}'.format(dtime=self.init_time.strftime('%Y%m%d')))
+            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
 
-        session = requests.Session()
-        forecast_table = session.get(html_folder)
+        if not hasattr(self, 'session'):
+            self.session = requests.Session()
+
+        forecast_table = self.session.get(html_folder)
 
         if forecast_table.status_code != 200:
             raise RequestError('Invalid URL/date')
@@ -157,7 +186,7 @@ class Fetcher(object):
                 self.logger.warning('Failed to retrieve %s' % filename)
                 continue
             try:
-                r = session.get(html_folder + '/' + filename, stream=True)
+                r = self.session.get(html_folder + '/' + filename, stream=True)
 
                 with open(local_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=1024):
@@ -176,16 +205,37 @@ class Fetcher(object):
                          (1.0*total_size/1024**2/(end-start)))
         self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
 
-        
-
     def close(self):
         if hasattr(self, 'ftp'):
             self.ftp.close()
+        if hasattr(self, 'session'):
+            self.session.close()
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
-    f = Fetcher(dt.datetime(2014,10,8,0), 'subhourly')
-    f.fetch_ftp()
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
+    
+    argparser = argparse.ArgumentParser(
+        description='Download HRRR grib files and store select fields in netCDF format')
+    argparser.add_argument('-v', '--verbose', help='Increase logging verbosity',
+                           action='count')
+    argparser.add_argument('-p', '--protocol', help='Download protocol',
+                           choices=['ftp', 'http'], default='ftp')
+    argparser.add_argument('-c', '--config', help='Config file path')
+    argparser.add_argument('-l', '--level', help='HRRR level subtype',
+                           choices=['surface', 'subhourly','pressure', 
+                                    'native'],
+                           default='subhourly')
+    argparser.add_argument('INITDT', help='Initilization datetime')
+    args = argparser.parse_args()
+    
+    if args.verbose == 1:
+        logging.getLogger().setLevel(logging.INFO)
+    elif args.verbose > 1:
+        logging.getLogger().setLevel(logging.DEBUG)
+        
+    f = HRRRFetcher(args.INITDT, args.level, args.protocol, 
+                    args.config)
+    f.fetch()
     f.close()
 
 
