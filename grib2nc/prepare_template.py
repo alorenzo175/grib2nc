@@ -14,6 +14,9 @@ XLONG_DICT = {'FieldType':104, 'MemoryOrder':"XY",
 XLAT_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
               'stagger':"", 'units':'degree_north',
               'description':"LATITUDE, SOUTH IS NEGATIVE"}
+PRES_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
+             'stagger':"", 'units':'mb',
+             'description':"PRESSURE, ASSUME PB = 0"}
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s', 
@@ -39,20 +42,26 @@ def main():
     make_netcdf(args.ncfilename, args.nlats, args.nlons)
         
         
-def make_netcdf(ncfilename='base.nc', nlats=1059, nlons=1799):    
+def make_netcdf(ncfilename='base.nc', nlats=1059, nlons=1799, vertical=False, 
+                nvert=40):    
     netc = nc4.Dataset(ncfilename, 'w', format='NETCDF4')
     netc.createDimension('Time', None)
     netc.createDimension('time', 2)
     netc.createDimension('south_north', nlats)
     netc.createDimension('west_east', nlons)
     netc.createDimension('DateStrLen', 19)
+    if vertical:
+        netc.createDimension('bottom_top', nvert)
+        pres = netc.createVariable('P', 'f4', ('time', 'bottom_top', 'south_north',
+            'west_east'),zlib=True, complevel=1)
+        pres.setncatts(PRES_DICT)
 
     netc.createVariable('Times', 'S1', ('Time', 'DateStrLen'), 
                         zlib=True, complevel=1)
-    lons = netc.createVariable('XLONG', 'f4', ('time', 'south_north', 'west_east'), 
-                               zlib=True, complevel=1)
-    lats = netc.createVariable('XLAT', 'f4', ('time', 'south_north', 'west_east'),
-                        zlib=True, complevel=1)    
+    lons = netc.createVariable('XLONG', 'f4', ('time', 'south_north', 
+        'west_east'), zlib=True, complevel=1)
+    lats = netc.createVariable('XLAT', 'f4', ('time', 'south_north', 
+        'west_east'), zlib=True, complevel=1)    
     lons.setncatts(XLONG_DICT)
     lats.setncatts(XLAT_DICT)
     netc.sync()

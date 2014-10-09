@@ -1,7 +1,7 @@
 [download_settings]
 ;; from http://www.nco.ncep.noaa.gov/pmb/products/hrrr/
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
-ftp_host = ftp.ncep.noaa.gov
+ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
 folder = /home/tony/data/hrrr/
 base_file = /home/tony/data/hrrr/base.nc
@@ -25,22 +25,22 @@ V10 = VGRD,10 m above ground
 U80 = UGRD,80 m above ground
 V80 = VGRD,80 m above ground
 SWDNB = DSWRF,surface
-DPT = DPT,2 m above ground
+TD2 = DPT,2 m above ground
 
 [pressure_settings]
-H = HGT,
+PH = HGT,
 T = TMP,
 RH = RH,
-DPT = DPT,
-SP = SPFH,
+TD = DPT,
+Q = SPFH,
 U = UGRD,
 V = VGRD,
 
 [native_settings]
 P = PRES,
-H = HGT,
+PH = HGT,
 T = TMP,
-SP = SPFH,
+Q = SPFH,
 U = UGRD,
 V = VGRD,
 
@@ -52,5 +52,5 @@ V10 = VGRD,10 m above ground
 U80 = UGRD,80 m above ground
 V80 = VGRD,80 m above ground
 SWDNB = DSWRF,surface
-DPT = DPT,2 m above ground
+TD2 = DPT,2 m above ground
 
