@@ -1,6 +1,6 @@
 #!/usr/env python
 """
-A program to download the requested HRRR forecasts
+A convert grib forecasts to netCDF
 
 
 .. codeauthor:: Tony Lorenzo <alorenzo175@gmail.com>
@@ -25,6 +25,17 @@ import netCDF4 as nc4
 
 
 class Grib2NC(object):
+    """Grib2NC converts many grib files into a single netCDF
+    forecast file.
+
+    Parameters
+    ----------
+    init_time : str or datetime
+        The initilization time of the forecast to convert
+    level : str
+        The HRRR forecast "level" i.e. surface, native, pressures, or subhourly
+    """
+    
     def __init__(self, init_time, level):
         self.logger = logging.getLogger()
         self.config = configparser.ConfigParser()
@@ -60,6 +71,9 @@ class Grib2NC(object):
             init_time=init_time.strftime('%Y%m%d%H'), level=level)
 
     def read_index(self):
+        """Read the .idx files
+
+        """
         idx_files = [afile for afile in os.listdir(self.grib_path) 
                      if afile.endswith('.idx') and self.level in afile]
         index_df = None
@@ -86,6 +100,9 @@ class Grib2NC(object):
         return index_df
 
     def setup_netcdf(self):
+        """Setup the netCDF file and add lat/lon from the grib files
+        
+        """
         # first check the grid
         if not hasattr(self, 'index_df'):
             self.read_index()
@@ -135,6 +152,10 @@ class Grib2NC(object):
                                                  self.min_lon:self.max_lon], 0)
 
     def load_into_netcdf(self):
+        """Load the grib files into the netCDF file that has been setup
+        
+        """
+        
         if not hasattr(self, 'ncwriter'):
             self.setup_netcdf()
         
@@ -234,12 +255,29 @@ class Grib2NC(object):
         self.ncwriter.close()
                         
 class NCWriter(object):
+    """NCWriter handles all the writing and setup of the netCDF file
+    
+    """
 
     def __init__(self):
         self.logger = logging.getLogger('NCWriter')
         
     def make_netcdf(self, ncfilename='base.nc', nlats=1059, nlons=1799, vertical=False, 
                 nvert=40):    
+        """Create the netCDF file and initilize dimensions
+
+        Parameters
+        ----------
+        ncfilename : str
+        nlats : int
+            length of lat (south_north) dimension
+        nlons : int
+            length of lon (west_east) dimension
+        vertical : boolean
+            whether the bottom_top dimension should be used
+        nvert : int
+            length of vertical (bottom_top) dimension
+        """
         XLONG_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
                       'stagger':"", 'units':'degree_east',
                       'description':"LONGITUDE, WEST IS NEGATIVE"}
@@ -269,6 +307,27 @@ class NCWriter(object):
     def add_variable(self, var_name, field_type=104, mem_order="XY",
                  stagger='', units='', description='', dformat='f4',
                  vertical=False):
+        """Create a new variable in the netCDF file
+
+        Parameters
+        ----------
+        var_name : str
+            name of the new variable
+        field_type : int or str
+            value for netCDF FieldType attribute
+        mem_order : str
+            value for netCDF MemoryOrder attribute
+        stagger : str
+            value for netCDF stagger attribute
+        units : str
+            units of the variable
+        description : str
+            description of the variable
+        dformat : str
+            data type for the variable
+        vertical : boolean
+            whether the new variable should be index by the bottom_top dimension
+        """
         if vertical:
             var = self.netc.createVariable(var_name, dformat, ('Time', 'bottom_top', 
                 'south_north', 'west_east'), zlib=True, complevel=1)
@@ -283,15 +342,30 @@ class NCWriter(object):
         self.netc.sync()
 
     def set_variable(self, var_name, data, *position):
+        """Inserts data into the variable
+
+        Parameters
+        ----------
+        var_name : str
+            variable name
+        data : numpy array
+            data to insert
+        *position : int or tuple or list
+            numpy slicing index for position to place data in variable
+        """
         self.logger.debug('Putting data into %s at %s' % (var_name, position))
         var = self.netc.variables[var_name]
         var[position] = data
         return var
 
     def check_variable(self, var_name):
+        """Check if the variable has been added to the file yet
+        """
         return var_name in self.netc.variables
 
     def close(self):
+        """Close the netCDF file
+        """
         if hasattr(self, 'netc'):
             self.netc.close()
 

@@ -31,6 +31,19 @@ class RequestError(Exception):
 
 
 class HRRRFetcher(object):
+    """Fetch the specified HRRR forecasts from the NCEP servers
+    
+    Parameters
+    ----------
+    init_time : str or datetime
+        Initilization time of the forecast you want
+    level : str
+        "Level" of the HRRR forecast i.e. surface, subhourly, native, or pressure
+    method : str
+        Method/protocol to download files. Currently ftp or http
+    config_path : str
+        Path to the config file
+    """
     def __init__(self, init_time, level, method='ftp', config_path=None):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
@@ -70,6 +83,8 @@ class HRRRFetcher(object):
         self.downloaded_files = []
 
     def fetch(self, init_time=None, level=None, overwrite=True):
+        """Fetch the forecasts
+        """
         if self.default_method == 'ftp':
             return self.fetch_ftp(init_time, level, overwrite)
         elif self.default_method == 'http':

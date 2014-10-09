@@ -4,7 +4,6 @@ html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
 folder = /home/tony/data/hrrr/
-;; base_file = /home/tony/data/hrrr/base.nc
 
 [output_types]
 native = wrfnat
