@@ -30,7 +30,7 @@ class Grib2NC(object):
 
     Parameters
     ----------
-    init_time : str or datetime
+    init_time : datetime
         The initilization time of the forecast to convert
     level : str
         The HRRR forecast "level" i.e. surface, native, pressures, or subhourly
@@ -56,13 +56,14 @@ class Grib2NC(object):
         self.grib_vars = self.config.items(
             '{level}_settings'.format(level=level))
 
-        self.base_path = os.path.join(self.download_dict['folder'], 
-                                      init_time.strftime('%Y'),
-                                      init_time.strftime('%m'),
-                                      init_time.strftime('%d'),
-                                      init_time.strftime('%Hz'))
-        self.grib_path = os.path.join(self.base_path, 'grib')
-        self.netcdf_path = os.path.join(self.base_path, 'netcdf')
+        self.grib_path = self.download_dict['grib_base_folder'].format( 
+            year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
+
+        self.netcdf_path = self.download_dict['netcdf_base_folder'].format( 
+            year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
+
         if not os.path.isdir(self.grib_path):
             os.makedirs(self.grib_path)
         if not os.path.isdir(self.netcdf_path):
@@ -204,12 +205,11 @@ class Grib2NC(object):
                 if thetime not in times:
                     timed = len(times)
                     times.append(thetime)
+                    self.ncwriter.set_variable('Times', nc4.stringtoarr(
+                        thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19), timed)
                 else:
                     timed = times.index(thetime)
 
-
-                self.ncwriter.set_variable('Times', nc4.stringtoarr(
-                    thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19), timed)
 
                 if self.vertical:
                     thelevel = grb.level

@@ -3,8 +3,9 @@
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
-folder = /home/tony/data/hrrr/
-workers = 4
+grib_base_folder = /home/tony/data/hrrr/{year}/{month}/{day}/hrrr/{hour}z/grib/
+netcdf_base_folder = /home/tony/data/hrrr/{year}/{month}/{day}/hrrr/{hour}z/
+workers = 8
 
 [output_types]
 native = wrfnat
@@ -19,6 +20,15 @@ lon1 = -116
 lon2 = -102
 
 [surface_settings]
+T2 = TMP,2 m above ground
+U10 = UGRD,10 m above ground
+V10 = VGRD,10 m above ground
+U80 = UGRD,80 m above ground
+V80 = VGRD,80 m above ground
+SWDNB = DSWRF,surface
+TD2 = DPT,2 m above ground
+
+[subhourly_settings]
 T2 = TMP,2 m above ground
 U10 = UGRD,10 m above ground
 V10 = VGRD,10 m above ground
@@ -43,14 +53,3 @@ T = TMP,
 Q = SPFH,
 U = UGRD,
 V = VGRD,
-
-
-[subhourly_settings]
-T2 = TMP,2 m above ground
-U10 = UGRD,10 m above ground
-V10 = VGRD,10 m above ground
-U80 = UGRD,80 m above ground
-V80 = VGRD,80 m above ground
-SWDNB = DSWRF,surface
-TD2 = DPT,2 m above ground
-

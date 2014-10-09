@@ -75,12 +75,10 @@ class HRRRFetcher(object):
             raise TypeError('init_time must be a datetime string or datetime object')
 
         self.default_method = method
-        self.base_path = os.path.join(self.download_dict['folder'], 
-                                      self.init_time.strftime('%Y'),
-                                      self.init_time.strftime('%m'),
-                                      self.init_time.strftime('%d'),
-                                      self.init_time.strftime('%Hz'),
-                                      'grib')
+
+        self.base_path = self.download_dict['grib_base_folder'].format( 
+            year=self.init_time.strftime('%Y'), month=self.init_time.strftime('%m'),
+            day=self.init_time.strftime('%d'), hour=self.init_time.strftime('%H'))
             
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
