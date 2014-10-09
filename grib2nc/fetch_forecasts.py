@@ -21,6 +21,10 @@ except ImportError:
 
 
 import pandas as pd
+try:
+    import concurrent.futures as cf
+except ImportError:
+    import futures as cf
 
 
 class RequestError(Exception):
@@ -82,33 +86,148 @@ class HRRRFetcher(object):
             os.makedirs(self.base_path)
         self.downloaded_files = []
 
+    def _http_setup(self, init_time, level, forecast_name):
+        try:
+            global requests
+            import requests
+        except ImportError:
+            raise ImportError('HTTP requires requests')
+
+        html_folder = (self.download_dict['html_site'] + 
+            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
+
+        forecast_table = requests.get(html_folder)
+
+        if forecast_table.status_code != 200:
+            raise RequestError('Invalid URL/date')
+            
+        table = pd.io.html.read_html(forecast_table.content,
+                                     header=0, parse_dates=True,
+                                     infer_types=False)[0]
+        
+        files_df= table[table['Name'].str.contains(
+            forecast_name)]
+        
+        def process_size(size):
+            if size.endswith('K'):
+                out = float(size[:-1])*1024
+            elif size.endswith('M'):
+                out = float(size[:-1])*1024**2
+            else:
+                out = float(size)
+            return out
+
+        expected_size = files_df['Size'].map(process_size).sum()
+        files = files_df['Name']
+        return (files, expected_size)
+
+    def _ftp_setup(self, init_time, level, forecast_name):
+        try:
+            global ftplib
+            import ftplib
+        except ImportError:
+            raise ImportError('FTP fetching requires ftplib')
+
+        self.logger.info('Connecting to FTP site')
+        ftp = self.connect_ftp(init_time)
+        files = ftp.nlst(forecast_name + '*')
+        expected_size = 0
+        for afile in files:
+            expected_size += ftp.size(afile)
+        return (files, expected_size)
+
+
+
     def fetch(self, init_time=None, level=None, overwrite=True):
         """Fetch the forecasts
         """
-        if self.default_method == 'ftp':
-            return self.fetch_ftp(init_time, level, overwrite)
-        elif self.default_method == 'http':
-            return self.fetch_http(init_time, level, overwrite)
-        else:
-            raise AttributeError('Method must be ftp or http')
+
+        level = level or self.level
+        init_time = init_time or self.init_time
+        forecast_name ='hrrr.t{init_hour}z.{level}f'.format(
+            init_hour=init_time.strftime('%H'),
+            level=self.hrrr_type_dict[level])
+
+        html_folder = (self.download_dict['html_site'] + 
+            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
+
+        files, expected_size = getattr(
+            self, '_%s_setup' % self.default_method)(init_time, level, forecast_name)
+        
+        self.logger.info('Downloading %0.2f MB of data' 
+                         % (1.0*expected_size/1024**2))
+
+        def _ftp_fetch(filename, local_path):
+            size = []
+            ftp = self.connect_ftp(init_time)
+            self.logger.debug('Retrieving %s' % filename)
+            with open(local_path, 'wb') as f:
+                def callback(data):
+                    f.write(data)
+                    size.append(len(data))
+                ftp.retrbinary('RETR %s' % filename, callback)
+            return sum(size)
+
+        def _http_fetch(filename, local_path):
+            size = 0
+            self.logger.debug('Retrieving %s' % filename)
+            r = requests.get(html_folder + '/' + filename, stream=True)
+            with open(local_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+                        f.flush()
+                        size += len(chunk)
+            return size
+
+        total_size = 0
+        nfiles = 0
+        # threading loop
+        with cf.ThreadPoolExecutor(max_workers=self.config.getint(
+                'download_settings', 'workers')) as executor:
+            worker_dict = {}
+            for filename in files:
+                local_path = os.path.join(self.base_path,  filename)
+                if os.path.isfile(local_path) and not overwrite:
+                    self.logger.warning('%s already exists!' % filename)
+                    continue
+                self.downloaded_files.append(local_path)
+                wk = executor.submit(_ftp_fetch, filename, local_path)
+                worker_dict[wk] = filename
+
+            start = time.time()
+
+            for future in cf.as_completed(worker_dict):
+                thefile = worker_dict[future]
+                try:
+                    size = future.result()
+                except Exception as e:
+                    self.logger.exception('?')
+                else:
+                    total_size += size
+                    nfiles += 1
+                    
+        end = time.time()
+        self.logger.info('Retrieved %s files in %s seconds' % 
+                         (nfiles, end-start))
+        self.logger.info('Approx. Download rate: %0.2f MB/s' % 
+                         (1.0*total_size/1024**2/(end-start)))
+        self.logger.debug('Files retrieved are %s' % self.downloaded_files)
+
+        
 
     def connect_ftp(self, init_time=None):
-        try:
-            import ftplib
-        except ImportError:
-            raise ImportError('FTP requires the ftplib module')
-
-        self.logger.info('Connecting to FTP site')
-        self.ftp = ftplib.FTP(self.download_dict['ftp_host'])
-        self.ftp.login()
-        self.ftp.cwd(self.download_dict['ftp_dir'])
-        stored_days = self.ftp.nlst()
+        ftp = ftplib.FTP(self.download_dict['ftp_host'])
+        ftp.login()
+        ftp.cwd(self.download_dict['ftp_dir'])
+        stored_days = ftp.nlst()
         init_time = init_time or self.init_time
         it_date = init_time.strftime('hrrr.%Y%m%d')
         if it_date not in stored_days:
             raise RequestError('Requested forecast initilization day '+
                                'not on NCEP server')
-        self.ftp.cwd(it_date)
+        ftp.cwd(it_date)
+        return ftp
 
     def fetch_ftp(self, init_time=None, level=None, overwrite=True):
         level = level or self.level
