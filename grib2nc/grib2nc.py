@@ -12,7 +12,6 @@ import os
 import logging
 import traceback
 import datetime as dt
-import time
 try:
     import ConfigParser as configparser
 except ImportError:
@@ -21,12 +20,8 @@ except ImportError:
 
 import numpy as np
 import pandas as pd
-import requests
 import pygrib
 import netCDF4 as nc4
-
-
-from prepare_template import make_netcdf, add_variable
 
 
 class Grib2NC(object):
@@ -130,19 +125,17 @@ class Grib2NC(object):
             nvert=None
 
         path = os.path.join(self.netcdf_path, self.ncfilename)
-        make_netcdf(path, self.max_lat-self.min_lat,
-                    self.max_lon-self.min_lon, self.vertical,
-                    nvert)
-        self.ncfile = nc4.Dataset(path, 'a', format='NETCDF4')
-        nclats = self.ncfile.variables['XLAT']
-        nclons = self.ncfile.variables['XLONG']
-        nclats[0] = lats[self.min_lat:self.max_lat,
-                         self.min_lon:self.max_lon]
-        nclons[0] = lons[self.min_lat:self.max_lat,
-                         self.min_lon:self.max_lon]
+        self.ncwriter = NCWriter()
+        self.ncwriter.make_netcdf(path, self.max_lat-self.min_lat,
+            self.max_lon-self.min_lon, self.vertical,nvert)
+
+        self.ncwriter.set_variable('XLAT', lats[self.min_lat:self.max_lat,
+                                                self.min_lon:self.max_lon], 0)
+        self.ncwriter.set_variable('XLONG', lons[self.min_lat:self.max_lat,
+                                                 self.min_lon:self.max_lon], 0)
 
     def load_into_netcdf(self):
-        if not hasattr(self, 'ncfile'):
+        if not hasattr(self, 'ncwriter'):
             self.setup_netcdf()
         
         field_dict = {}
@@ -194,8 +187,8 @@ class Grib2NC(object):
                     timed = times.index(thetime)
 
 
-                self.ncfile.variables['Times'][timed] = nc4.stringtoarr(
-                    thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19)
+                self.ncwriter.set_variable('Times', nc4.stringtoarr(
+                    thetime.strftime('%Y-%m-%d_%H:%M:%S'), 19), timed)
 
                 if self.vertical:
                     thelevel = grb.level
@@ -211,41 +204,101 @@ class Grib2NC(object):
                                            series.vertical_layer)].upper()
 
 
-                if nc_field not in self.ncfile.variables:
-                    add_variable(self.ncfile, nc_field, description=grb.name,
-                                 units=grb.units, vertical=self.vertical)
+                if not self.ncwriter.check_variable(nc_field):
+                    self.ncwriter.add_variable(nc_field, description=grb.name,
+                        units=grb.units, vertical=self.vertical)
 
-                var = self.ncfile.variables[nc_field]
                 if not self.vertical:
-                    var[timed] = grb.values[self.min_lat:self.max_lat,
-                                            self.min_lon:self.max_lon]
+                    self.ncwriter.set_variable(nc_field,
+                        grb.values[self.min_lat:self.max_lat,
+                                   self.min_lon:self.max_lon],
+                                               timed)
                 else:
                     ivals = grb.values[self.min_lat:self.max_lat,
                                        self.min_lon:self.max_lon]
                     try:
-                        var[timed,leveld] = ivals
+                        self.ncwriter.set_variable(nc_field, ivals,
+                                                   [timed,leveld])
+                                                   
                     except RuntimeError:
                         self.logger.debug('Error with leveld = %s and var = %s' % (leveld, grb.cfName))
                     else:
                         if self.level == 'wrfprs':
-                            if 'P' not in self.ncfile.variables:
-                                add_variable(self.ncfile, 'P', units='mb', 
-                                             vertical=True)
+                            if not self.ncwriter.check_variable('P'):
+                                self.nc_writer.add_variable('P', units='mb', 
+                                                            vertical=True)
 
-                            self.ncfile.variables['P'][timed, leveld] = (
-                                np.ones(ivals.shape) * grb.level)
+                            self.ncwriter.set_variable(
+                                'P',(np.ones(ivals.shape) * grb.level),
+                                [timed, leveld])
+        self.ncwriter.close()
                         
-                        
+class NCWriter(object):
 
+    def __init__(self):
+        self.logger = logging.getLogger('NCWriter')
         
+    def make_netcdf(self, ncfilename='base.nc', nlats=1059, nlons=1799, vertical=False, 
+                nvert=40):    
+        XLONG_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
+                      'stagger':"", 'units':'degree_east',
+                      'description':"LONGITUDE, WEST IS NEGATIVE"}
+        XLAT_DICT = {'FieldType':104, 'MemoryOrder':"XY", 
+                      'stagger':"", 'units':'degree_north',
+                      'description':"LATITUDE, SOUTH IS NEGATIVE"}
+
+        self.netc = nc4.Dataset(ncfilename, 'w', format='NETCDF4')
+        self.netc.createDimension('Time', None)
+        self.netc.createDimension('time', 2)
+        self.netc.createDimension('south_north', nlats)
+        self.netc.createDimension('west_east', nlons)
+        self.netc.createDimension('DateStrLen', 19)
+        if vertical:
+            self.netc.createDimension('bottom_top', nvert)
+
+        self.netc.createVariable('Times', 'S1', ('Time', 'DateStrLen'), 
+                            zlib=True, complevel=1)
+        lons = self.netc.createVariable('XLONG', 'f4', ('time', 'south_north', 
+            'west_east'), zlib=True, complevel=1)
+        lats = self.netc.createVariable('XLAT', 'f4', ('time', 'south_north', 
+            'west_east'), zlib=True, complevel=1)    
+        lons.setncatts(XLONG_DICT)
+        lats.setncatts(XLAT_DICT)
+        self.netc.sync()
+
+    def add_variable(self, var_name, field_type=104, mem_order="XY",
+                 stagger='', units='', description='', dformat='f4',
+                 vertical=False):
+        if vertical:
+            var = self.netc.createVariable(var_name, dformat, ('Time', 'bottom_top', 
+                'south_north', 'west_east'), zlib=True, complevel=1)
+        else:
+            var = self.netc.createVariable(var_name, dformat, ('Time', 
+                'south_north', 'west_east'), zlib=True, complevel=1)
+        var.description = description
+        var.units = units
+        var.MemoryOrder = mem_order
+        var.FieldType = field_type
+        var.stagger = stagger
+        self.netc.sync()
+
+    def set_variable(self, var_name, data, *position):
+        self.logger.debug('Putting data into %s at %s' % (var_name, position))
+        var = self.netc.variables[var_name]
+        var[position] = data
+        return var
+
+    def check_variable(self, var_name):
+        return var_name in self.netc.variables
+
+    def close(self):
+        if hasattr(self, 'netc'):
+            self.netc.close()
 
 def main():
     logging.basicConfig(level=logging.DEBUG)
-    g2nc = Grib2NC(dt.datetime(2014,10,7,2), 'native')
-    g2nc.read_index()
-    g2nc.setup_netcdf()
+    g2nc = Grib2NC(dt.datetime(2014,10,9,0), 'subhourly')
     g2nc.load_into_netcdf()
-    g2nc.ncfile.close()
     return g2nc.index_df
 
 

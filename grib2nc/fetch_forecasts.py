@@ -20,6 +20,9 @@ except ImportError:
     import configparser
 
 
+import pandas as pd
+
+
 class RequestError(Exception):
     def __init__(self, value):
         self.value = value
@@ -64,6 +67,7 @@ class HRRRFetcher(object):
             
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
+        self.downloaded_files = []
 
     def fetch(self, init_time=None, level=None, overwrite=True):
         if self.default_method == 'ftp':
@@ -78,6 +82,8 @@ class HRRRFetcher(object):
             import ftplib
         except ImportError:
             raise ImportError('FTP requires the ftplib module')
+
+        self.logger.info('Connecting to FTP site')
         self.ftp = ftplib.FTP(self.download_dict['ftp_host'])
         self.ftp.login()
         self.ftp.cwd(self.download_dict['ftp_dir'])
@@ -108,6 +114,8 @@ class HRRRFetcher(object):
         self.logger.info(('Attempting to retrieve %0.2f MB of data in %s'+
                          ' files over FTP')
                          % ((1.0*expected_size/1024**2), len(files)))
+
+
         start = time.time()
         for afile in files:
             self.logger.debug('Retrieving %s' % afile)
@@ -115,6 +123,7 @@ class HRRRFetcher(object):
             if os.path.isfile(local_path) and not overwrite:
                 self.logger.warning('%s already exists!' % afile)
                 continue
+            self.downloaded_files.append(local_path)
             with open(local_path, 'wb') as f:
                 def callback(data):
                     f.write(data)
@@ -130,14 +139,13 @@ class HRRRFetcher(object):
                                                                end-start))
         self.logger.info('Download rate: %0.2f MB/s' % 
                          (1.0*total_size/1024**2/(end-start)))
-        self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
+        self.logger.debug('Files retrieved are %s' % self.downloaded_files)
 
     def fetch_http(self, init_time=None, level=None, overwrite=True):
         try:
             import requests
-            import pandas as pd
         except ImportError:
-            raise ImportError('HTTP requires the requests and BeautifulSoup4')
+            raise ImportError('HTTP requires the requests module')
 
         init_time = init_time or self.init_time
         level = level or self.level
@@ -185,6 +193,7 @@ class HRRRFetcher(object):
             if os.path.isfile(local_path) and not overwrite:
                 self.logger.warning('Failed to retrieve %s' % filename)
                 continue
+            self.downloaded_files.append(local_path)
             try:
                 r = self.session.get(html_folder + '/' + filename, stream=True)
 
@@ -203,11 +212,11 @@ class HRRRFetcher(object):
                          (nfiles, end-start))
         self.logger.info('Download rate: %0.2f MB/s' % 
                          (1.0*total_size/1024**2/(end-start)))
-        self.logger.debug('Files retrieved are %s' % os.listdir(self.base_path))
+        self.logger.debug('Files retrieved are %s' % self.downloaded_files)
 
     def close(self):
         if hasattr(self, 'ftp'):
-            self.ftp.close()
+            self.ftp.quit()
         if hasattr(self, 'session'):
             self.session.close()
 
@@ -225,6 +234,11 @@ def main():
                            choices=['surface', 'subhourly','pressure', 
                                     'native'],
                            default='subhourly')
+    argparser.add_argument('-r', '--remove', 
+                           help='Remove grib files after conversion',
+                           action='store_true')
+    argparser.add_argument('--no-convert', action='store_true',
+                           help="Don't convert the grib files to netCDF")
     argparser.add_argument('INITDT', help='Initilization datetime')
     args = argparser.parse_args()
     
@@ -238,6 +252,17 @@ def main():
     f.fetch()
     f.close()
 
+    if not args.no_convert:
+        from grib2nc import Grib2NC
+        g2nc = Grib2NC(f.init_time, f.level)
+        g2nc.load_into_netcdf()
+
+    if args.remove and not args.no_convert:
+        for apath in f.downloaded_files:
+            os.remove(apath)
+            if not os.listdir(os.path.dirname(apath)):
+                os.rmdir(os.path.dirname(apath))
+            
 
 def exceptionlogging(*exc_info):
     text = "".join(traceback.format_exception(*exc_info))
