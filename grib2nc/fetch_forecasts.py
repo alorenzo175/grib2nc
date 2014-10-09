@@ -92,6 +92,9 @@ class HRRRFetcher(object):
             import requests
         except ImportError:
             raise ImportError('HTTP requires requests')
+        else:
+            logging.getLogger('requests.packages.urllib3'
+                              ).setLevel(logging.WARNING)
 
         html_folder = (self.download_dict['html_site'] + 
             'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
@@ -136,10 +139,23 @@ class HRRRFetcher(object):
             expected_size += ftp.size(afile)
         return (files, expected_size)
 
-
+    def connect_ftp(self, init_time=None):
+        """Connect to the FTP site and change directories
+        """        
+        ftp = ftplib.FTP(self.download_dict['ftp_host'])
+        ftp.login()
+        ftp.cwd(self.download_dict['ftp_dir'])
+        stored_days = ftp.nlst()
+        init_time = init_time or self.init_time
+        it_date = init_time.strftime('hrrr.%Y%m%d')
+        if it_date not in stored_days:
+            raise RequestError('Requested forecast initilization day '+
+                               'not on NCEP server')
+        ftp.cwd(it_date)
+        return ftp
 
     def fetch(self, init_time=None, level=None, overwrite=True):
-        """Fetch the forecasts
+        """Fetch the forecasts useing a threaded fetcher
         """
 
         level = level or self.level
@@ -150,12 +166,6 @@ class HRRRFetcher(object):
 
         html_folder = (self.download_dict['html_site'] + 
             'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
-
-        files, expected_size = getattr(
-            self, '_%s_setup' % self.default_method)(init_time, level, forecast_name)
-        
-        self.logger.info('Downloading %0.2f MB of data' 
-                         % (1.0*expected_size/1024**2))
 
         def _ftp_fetch(filename, local_path):
             size = []
@@ -180,6 +190,21 @@ class HRRRFetcher(object):
                         size += len(chunk)
             return size
 
+        if self.default_method == 'ftp':
+            files, expected_size = self._ftp_setup(
+                init_time, level, forecast_name)
+            fetcher = _ftp_fetch
+        elif self.default_method == 'http':
+            files, expected_size = self._http_setup(
+                init_time, level, forecast_name)
+            fetcher = _http_fetch
+        else:
+            raise AttributeError('method must be ftp or http not %s' % 
+                                 self.default_method)
+        
+        self.logger.info('Downloading %0.2f MB of data' 
+                         % (1.0*expected_size/1024**2))
+
         total_size = 0
         nfiles = 0
         # threading loop
@@ -191,18 +216,17 @@ class HRRRFetcher(object):
                 if os.path.isfile(local_path) and not overwrite:
                     self.logger.warning('%s already exists!' % filename)
                     continue
-                self.downloaded_files.append(local_path)
-                wk = executor.submit(_ftp_fetch, filename, local_path)
-                worker_dict[wk] = filename
+                wk = executor.submit(fetcher, filename, local_path)
+                worker_dict[wk] = (filename, local_path)
 
             start = time.time()
-
             for future in cf.as_completed(worker_dict):
-                thefile = worker_dict[future]
+                thefile, local_path = worker_dict[future]
+                self.downloaded_files.append(local_path)
                 try:
                     size = future.result()
                 except Exception as e:
-                    self.logger.exception('?')
+                    self.logger.exception('Exception when fetching %s' % thefile)
                 else:
                     total_size += size
                     nfiles += 1
@@ -210,153 +234,13 @@ class HRRRFetcher(object):
         end = time.time()
         self.logger.info('Retrieved %s files in %s seconds' % 
                          (nfiles, end-start))
-        self.logger.info('Approx. Download rate: %0.2f MB/s' % 
+        self.logger.info('Approx. download rate: %0.2f MB/s' % 
                          (1.0*total_size/1024**2/(end-start)))
         self.logger.debug('Files retrieved are %s' % self.downloaded_files)
 
-        
-
-    def connect_ftp(self, init_time=None):
-        ftp = ftplib.FTP(self.download_dict['ftp_host'])
-        ftp.login()
-        ftp.cwd(self.download_dict['ftp_dir'])
-        stored_days = ftp.nlst()
-        init_time = init_time or self.init_time
-        it_date = init_time.strftime('hrrr.%Y%m%d')
-        if it_date not in stored_days:
-            raise RequestError('Requested forecast initilization day '+
-                               'not on NCEP server')
-        ftp.cwd(it_date)
-        return ftp
-
-    def fetch_ftp(self, init_time=None, level=None, overwrite=True):
-        level = level or self.level
-        init_time = init_time or self.init_time
-        if not hasattr(self, 'ftp'):
-            self.connect_ftp(init_time)
-
-        forecast_name ='hrrr.t{init_hour}z.{level}f*'.format(
-            init_hour=init_time.strftime('%H'),
-            level=self.hrrr_type_dict[level])
-
-        files = self.ftp.nlst(forecast_name)
-        total_size = []
-        expected_size = 0
-        nfiles = 0
-        for afile in files:
-            expected_size += self.ftp.size(afile)
-        self.logger.info(('Attempting to retrieve %0.2f MB of data in %s'+
-                         ' files over FTP')
-                         % ((1.0*expected_size/1024**2), len(files)))
-
-
-        start = time.time()
-        for afile in files:
-            self.logger.debug('Retrieving %s' % afile)
-            local_path = os.path.join(self.base_path,  afile)
-            if os.path.isfile(local_path) and not overwrite:
-                self.logger.warning('%s already exists!' % afile)
-                continue
-            self.downloaded_files.append(local_path)
-            with open(local_path, 'wb') as f:
-                def callback(data):
-                    f.write(data)
-                    total_size.append(len(data))
-                try:
-                    self.ftp.retrbinary('RETR %s' % afile, callback)
-                except KeyboardInterrupt:
-                    break
-            nfiles += 1
-        end = time.time()
-        total_size = sum(total_size)
-        self.logger.info('Retrieved %s files in %s seconds' % (nfiles, 
-                                                               end-start))
-        self.logger.info('Download rate: %0.2f MB/s' % 
-                         (1.0*total_size/1024**2/(end-start)))
-        self.logger.debug('Files retrieved are %s' % self.downloaded_files)
-
-    def fetch_http(self, init_time=None, level=None, overwrite=True):
-        try:
-            import requests
-        except ImportError:
-            raise ImportError('HTTP requires the requests module')
-
-        init_time = init_time or self.init_time
-        level = level or self.level
-
-        forecast_name ='hrrr.t{init_hour}z.{level}f'.format(
-            init_hour=init_time.strftime('%H'),
-            level=self.hrrr_type_dict[level])
-        
-        html_folder = (self.download_dict['html_site'] + 
-            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
-
-        if not hasattr(self, 'session'):
-            self.session = requests.Session()
-
-        forecast_table = self.session.get(html_folder)
-
-        if forecast_table.status_code != 200:
-            raise RequestError('Invalid URL/date')
-            
-        table = pd.io.html.read_html(forecast_table.content,
-                                     header=0, parse_dates=True,
-                                     infer_types=False)[0]
-        
-        files_df= table[table['Name'].str.contains(
-            forecast_name)]
-        
-        def process_size(size):
-            if size.endswith('K'):
-                out = float(size[:-1])*1024
-            elif size.endswith('M'):
-                out = float(size[:-1])*1024**2
-            else:
-                out = float(size)
-            return out
-
-        expected_size = files_df['Size'].map(process_size).sum()
-        self.logger.info('Downloading %0.2f MB of data' 
-                         % (1.0*expected_size/1024**2))
-        start = time.time()
-        total_size = 0
-        nfiles = 0
-        for filename in files_df['Name']:
-            self.logger.debug('Retrieving %s' % filename)
-            local_path = os.path.join(self.base_path,  filename)
-            if os.path.isfile(local_path) and not overwrite:
-                self.logger.warning('Failed to retrieve %s' % filename)
-                continue
-            self.downloaded_files.append(local_path)
-            try:
-                r = self.session.get(html_folder + '/' + filename, stream=True)
-
-                with open(local_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024):
-                        if chunk:
-                            f.write(chunk)
-                            f.flush()
-                            total_size += len(chunk)
-                nfiles += 1
-            except KeyboardInterrupt:
-                break
-
-        end = time.time()
-        self.logger.info('Retrieved %s files in %s seconds' % 
-                         (nfiles, end-start))
-        self.logger.info('Download rate: %0.2f MB/s' % 
-                         (1.0*total_size/1024**2/(end-start)))
-        self.logger.debug('Files retrieved are %s' % self.downloaded_files)
-
-    def close(self):
-        if hasattr(self, 'ftp'):
-            self.ftp.quit()
-        if hasattr(self, 'session'):
-            self.session.close()
 
 def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
-    
     argparser = argparse.ArgumentParser(
         description='Download HRRR grib files and store select fields in netCDF format')
     argparser.add_argument('-v', '--verbose', help='Increase logging verbosity',
@@ -384,7 +268,6 @@ def main():
     f = HRRRFetcher(args.INITDT, args.level, args.protocol, 
                     args.config)
     f.fetch()
-    f.close()
 
     if not args.no_convert:
         from grib2nc import Grib2NC
