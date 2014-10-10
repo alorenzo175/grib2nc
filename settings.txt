@@ -5,6 +5,7 @@ ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
 grib_base_folder = /tmp/hrrr/grib/{year}/{month}/{day}/{hour}z/
 netcdf_base_folder = /home/pas/wrf_forecast/{year}/{month}/{day}/hrrr/{hour}z/
+netcdf_filename = hrrr.{level}.nc
 workers = 8
 
 [output_types]

@@ -69,7 +69,7 @@ class Grib2NC(object):
             os.makedirs(self.grib_path)
         if not os.path.isdir(self.netcdf_path):
             os.makedirs(self.netcdf_path)
-        self.ncfilename = 'hrrr.{init_time}.{level}.nc'.format(
+        self.ncfilename = self.download_dict['netcdf_filename'].format(
             init_time=init_time.strftime('%Y%m%d%H'), level=level)
 
     def read_index(self):
