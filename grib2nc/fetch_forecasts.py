@@ -15,6 +15,7 @@ import datetime as dt
 import time
 import fcntl
 import argparse
+import warnings
 try:
     import ConfigParser as configparser
 except ImportError:
@@ -108,9 +109,12 @@ class HRRRFetcher(object):
         if forecast_table.status_code != 200:
             raise RequestError('Invalid URL/date')
             
-        table = pd.io.html.read_html(forecast_table.content,
-                                     header=0, parse_dates=True,
-                                     infer_types=False)[0]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            table = pd.io.html.read_html(forecast_table.content,
+                                         header=0, parse_dates=True,
+                                         infer_types=False)[0]
+            
         
         files_df= table[table['Name'].str.contains(
             forecast_name)]
@@ -266,9 +270,11 @@ def check_availability(config_path, levels):
     config = configparser.ConfigParser()
     config.read(config_path)
     avail_site = config.get('download_settings', 'availability_site')
-    avail_df = pd.io.html.read_html(avail_site, header=0, index_col=0, 
-                                    parse_dates=True, infer_types=False,
-                                    flavor='bs4')[0]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        avail_df = pd.io.html.read_html(avail_site, header=0, index_col=0, 
+                                        parse_dates=True, infer_types=False,
+                                        flavor='bs4')[0]
 
     netcdf_folder = config.get('download_settings', 'netcdf_base_folder')
     netcdf_filename = config.get('download_settings', 'netcdf_filename')
