@@ -157,10 +157,11 @@ class Grib2NC(object):
         """Load the grib files into the netCDF file that has been setup
         
         """
-        
+
         if not hasattr(self, 'ncwriter'):
             self.setup_netcdf()
-        
+
+        self.logger.info('Making netCDF file %s' % self.ncfilename)
         field_dict = {}
         relevant_df = None
         for nc_field, grib_f in self.grib_vars:

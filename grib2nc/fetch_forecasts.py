@@ -1,4 +1,4 @@
-#!/usr/env python
+#!/usr/bin/env python
 """
 A program to download the requested HRRR forecasts
 
@@ -48,7 +48,8 @@ class HRRRFetcher(object):
     config_path : str
         Path to the config file
     """
-    def __init__(self, init_time, level, method='ftp', config_path=None):
+    def __init__(self, init_time, level, method='ftp', config_path=None, 
+                 threads=None):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
         self.config_path = config_path or os.path.join(
@@ -83,6 +84,9 @@ class HRRRFetcher(object):
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
         self.downloaded_files = []
+
+        self.nthreads = threads or self.config.getint(
+            'download_settings', 'workers')
 
     def _http_setup(self, init_time, level, forecast_name):
         try:
@@ -200,14 +204,13 @@ class HRRRFetcher(object):
             raise AttributeError('method must be ftp or http not %s' % 
                                  self.default_method)
         
-        self.logger.info('Downloading %0.2f MB of data' 
-                         % (1.0*expected_size/1024**2))
+        self.logger.info('Downloading %0.2f MB of data for forecast %s' 
+                         % ((1.0*expected_size/1024**2), forecast_name))
 
         total_size = 0
         nfiles = 0
         # threading loop
-        with cf.ThreadPoolExecutor(max_workers=self.config.getint(
-                'download_settings', 'workers')) as executor:
+        with cf.ThreadPoolExecutor(max_workers=self.nthreads) as executor:
             worker_dict = {}
             for filename in files:
                 local_path = os.path.join(self.base_path,  filename)
@@ -217,20 +220,36 @@ class HRRRFetcher(object):
                 wk = executor.submit(fetcher, filename, local_path)
                 worker_dict[wk] = (filename, local_path)
 
+            requeue = []
             start = time.time()
             for future in cf.as_completed(worker_dict):
                 thefile, local_path = worker_dict[future]
-                self.downloaded_files.append(local_path)
+
                 try:
                     size = future.result()
                 except Exception as e:
                     self.logger.exception('Exception when fetching %s' % thefile)
+                    requeue.append((thefile, local_path))
                 else:
+                    self.downloaded_files.append(local_path)
+                    total_size += size
+                    nfiles += 1
+
+        if requeue:
+            self.logger.warning('Must try to refetch some files')
+            for filename, local_path in requeue:
+                self.logger.info('Trying to refetch filename')
+                try:
+                    size = fetcher(filename, local_path)
+                except Exception as e:
+                    self.logger.exception('Failed to retrieve %s' % filename)
+                else:
+                    self.downloaded_files.append(local_path)
                     total_size += size
                     nfiles += 1
                     
         end = time.time()
-        self.logger.info('Retrieved %s files in %s seconds' % 
+        self.logger.info('Retrieved %s files in %0.1f seconds' % 
                          (nfiles, end-start))
         self.logger.info('Approx. download rate: %0.2f MB/s' % 
                          (1.0*total_size/1024**2/(end-start)))
@@ -250,6 +269,8 @@ def main():
                            help='HRRR level subtype; split multiple with commas')
     argparser.add_argument('-r', '--remove', action='store_true',
                            help='Remove grib files after conversion')
+    argparser.add_argument('-t', '--threads', type=int,
+                           help='Number of threads to use to fetch data')
     argparser.add_argument('--no-convert', action='store_true',
                            help="Don't convert the grib files to netCDF")
     argparser.add_argument('--no-overwrite', action='store_false',
@@ -266,7 +287,7 @@ def main():
     for atime in args.INITDT.split(','):
         for alevel in args.level.split(','):
             f = HRRRFetcher(atime, alevel, args.protocol, 
-                            args.config)
+                            args.config, args.threads)
             f.fetch(overwrite=args.no_overwrite)
 
             if not args.no_convert:
