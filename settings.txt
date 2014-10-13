@@ -4,6 +4,7 @@ availability_site = http://ruc.noaa.gov/hrrr/Status24.cgi
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
+ftp_timeout = 300
 grib_base_folder = /tmp/hrrr/grib/{year}/{month}/{day}/{hour}z/
 netcdf_base_folder = /home/pas/wrf_forecast/{year}/{month}/{day}/hrrr/{hour}z/
 netcdf_filename = hrrr.{level}.nc

@@ -150,7 +150,8 @@ class HRRRFetcher(object):
     def connect_ftp(self, init_time=None):
         """Connect to the FTP site and change directories
         """        
-        ftp = ftplib.FTP(self.download_dict['ftp_host'])
+        ftp = ftplib.FTP(self.download_dict['ftp_host'], 
+                         timeout=self.download_dict['ftp_timeout'])
         ftp.login()
         ftp.cwd(self.download_dict['ftp_dir'])
         stored_days = ftp.nlst()
