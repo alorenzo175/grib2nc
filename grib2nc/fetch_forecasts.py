@@ -276,6 +276,10 @@ def check_availability(config_path, levels):
         avail_df = pd.io.html.read_html(avail_site, header=0, index_col=0, 
                                         parse_dates=True, infer_types=False,
                                         flavor='bs4')[0]
+    invalid = [i for i, val in enumerate(avail_df.index) if not val.endswith('Z')]
+    avail_df.iloc[invalid] = np.nan
+    avail_df = avail_df.dropna()
+    avail_df.index = avail_df.index.to_datetime()
 
     netcdf_folder = config.get('download_settings', 'netcdf_base_folder')
     netcdf_filename = config.get('download_settings', 'netcdf_filename')
