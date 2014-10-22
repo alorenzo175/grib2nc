@@ -270,16 +270,24 @@ def check_availability(config_path, levels):
     
     config = configparser.ConfigParser()
     config.read(config_path)
-    avail_site = config.get('download_settings', 'availability_site')
+    avail_sites = config.get('download_settings', 'availability_sites')
+    dfs = []
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        avail_df = pd.io.html.read_html(avail_site, header=0, index_col=0, 
-                                        parse_dates=True, infer_types=False,
-                                        flavor='bs4')[0]
-    invalid = [i for i, val in enumerate(avail_df.index) if not val.endswith('Z')]
+        for site in avail_sites.split(','):
+            dfs.append(pd.io.html.read_html(site, header=0,
+                                            flavor='bs4')[0])
+    avail_df = pd.concat(dfs, ignore_index=True)
+    utcdate = dt.datetime.utcnow().date()
+    newi = [dt.datetime.combine(utcdate, 
+                                dt.datetime.strptime(e, '%H UTC HRRR').time()) 
+            for e in avail_df['EVENT']]
+    newi[-1] = newi[-1] - dt.timedelta(days=1)
+    avail_df.index = pd.Index(newi)
+
+    invalid = [i for i, val in enumerate(avail_df['STATUS']) if not "COMPLETE" in val]
     avail_df.iloc[invalid] = np.nan
     avail_df = avail_df.dropna()
-    avail_df.index = avail_df.index.to_datetime()
 
     netcdf_folder = config.get('download_settings', 'netcdf_base_folder')
     netcdf_filename = config.get('download_settings', 'netcdf_filename')
@@ -306,8 +314,8 @@ def check_availability(config_path, levels):
         
     to_get = {}
     for level in levels:
-        to_get[level] = sorted(avail_df[(avail_df['Status'] == 'Available') & 
-            (avail_df[level] == 0)].index.to_pydatetime())
+        to_get[level] = sorted(avail_df[(avail_df[level] == 0)
+                                    ].index.to_pydatetime())
         
     return to_get
 

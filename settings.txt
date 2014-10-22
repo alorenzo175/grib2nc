@@ -1,6 +1,6 @@
 [download_settings]
 ;; from http://www.nco.ncep.noaa.gov/pmb/products/hrrr/
-availability_site = http://ruc.noaa.gov/hrrr/Status24.cgi
+availability_sites = http://www.nco.ncep.noaa.gov/pmb/nwprod/prodstat_new/prdst_00-11_UTC_HRRR.html,http://www.nco.ncep.noaa.gov/pmb/nwprod/prodstat_new/prdst_12-23_UTC_HRRR.html
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
 ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
