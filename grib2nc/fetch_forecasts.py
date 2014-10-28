@@ -285,7 +285,9 @@ def check_availability(config_path, levels):
     newi[-1] = newi[-1] - dt.timedelta(days=1)
     avail_df.index = pd.Index(newi)
 
-    invalid = [i for i, val in enumerate(avail_df['STATUS']) if not "COMPLETE" in val]
+    invalid = [i for i, val in enumerate(avail_df['STATUS']) 
+               if not "COMPLETE" in val or 
+               avail_df.index[i] > dt.datetime.utcnow()]
     avail_df.iloc[invalid] = np.nan
     avail_df = avail_df.dropna()
 
