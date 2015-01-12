@@ -41,7 +41,7 @@ LTNG = LTNG,surface
 PSFC = PRES,surface
 PRCPR = PRATE,surface
 PRCP = APCP,surface
-CLDFRA = TCDC,entire atmosphere
+TCDC = TCDC,entire atmosphere
 CAPE = CAPE,180-0 mb above ground
 PBLH = HPBL,surface
 
