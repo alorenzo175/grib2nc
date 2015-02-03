@@ -71,13 +71,11 @@ class Grib2NC(object):
 
         self.grib_path = grib_path or self.download_dict['grib_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
-            day=init_time.strftime('%d'), hour=init_time.strftime('%H'),
-            model=model)
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
 
         self.netcdf_path = netcdf_path or self.download_dict['netcdf_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
-            day=init_time.strftime('%d'), hour=init_time.strftime('%H'), 
-            model=model)
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
 
         if not os.path.isdir(self.grib_path):
             os.makedirs(self.grib_path)
