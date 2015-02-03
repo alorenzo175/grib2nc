@@ -16,12 +16,23 @@ try:
     import ConfigParser as configparser
 except ImportError:
     import configparser
+import subprocess
 
 
 import numpy as np
 import pandas as pd
 import pygrib
 import netCDF4 as nc4
+
+
+WRGRIB2 = '/usr/bin/wgrib2'
+
+class EmptyError(Exception):
+    def __init__(self, value):
+        self.value = value 
+
+    def __str__(self):
+        return str(self.value)
 
 
 class Grib2NC(object):
@@ -36,7 +47,8 @@ class Grib2NC(object):
         The HRRR forecast "level" i.e. surface, native, pressures, or subhourly
     """
     
-    def __init__(self, init_time, level, config_path=None):
+    def __init__(self, init_time, level, config_path=None, grib_path=None,
+                 netcdf_path=None, ncfilename=None):
         self.logger = logging.getLogger()
         self.config = configparser.ConfigParser()
         self.config_path = config_path or os.path.join(
@@ -45,10 +57,10 @@ class Grib2NC(object):
         self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
-        if level not in self.hrrr_type_dict:
+        if level.lower() not in self.hrrr_type_dict:
             raise Exception
         else:
-            self.level = self.hrrr_type_dict[level]
+            self.level = self.hrrr_type_dict[level.lower()]
             if level in ['native', 'pressure']:
                 self.vertical = True
             else:
@@ -57,20 +69,41 @@ class Grib2NC(object):
         self.grib_vars = self.config.items(
             '{level}_settings'.format(level=level))
 
-        self.grib_path = self.download_dict['grib_base_folder'].format( 
+        self.grib_path = grib_path or self.download_dict['grib_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
-            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'),
+            model=model)
 
-        self.netcdf_path = self.download_dict['netcdf_base_folder'].format( 
+        self.netcdf_path = netcdf_path or self.download_dict['netcdf_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
-            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'), 
+            model=model)
 
         if not os.path.isdir(self.grib_path):
             os.makedirs(self.grib_path)
         if not os.path.isdir(self.netcdf_path):
             os.makedirs(self.netcdf_path)
-        self.ncfilename = self.download_dict['netcdf_filename'].format(
+        self.ncfilename = ncfilename or self.download_dict['netcdf_filename'].format(
             init_time=init_time.strftime('%Y%m%d%H'), level=level)
+
+    def make_index_files(self):
+        grib2_files = [afile for afile in os.listdir(self.grib_path)
+                       if afile.endswith('.grib2')]
+        if not grib2_files:
+            raise EmptyError('No .grib2 files in path {}'.format(
+                self.grib_path))
+        for afile in grib2_files:
+            command = '{wgrib} -s {file} > {new_file}'.format(
+                wgrib=WRGRIB2, file=os.path.join(self.grib_path,afile)
+                , new_file=os.path.join(self.grib_path,afile[:-6]+'.idx'))
+            try:
+                subprocess.check_output([command,], shell=True, 
+                                        stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e:
+                self.logger.error(e.output)
+                raise e
+            
+            
 
     def read_index(self):
         """Read the .idx files
@@ -78,6 +111,15 @@ class Grib2NC(object):
         """
         idx_files = [afile for afile in os.listdir(self.grib_path) 
                      if afile.endswith('.idx') and self.level in afile]
+        
+        if not idx_files:
+            self.make_index_files()
+            idx_files = [afile for afile in os.listdir(self.grib_path) 
+                         if afile.endswith('.idx') and self.level in afile]
+            if not idx_files:
+                raise EmptyError('No index files found')
+
+
         index_df = None
         for idx_file in sorted(idx_files):
             grib_file_desc =  pd.read_table(os.path.join(self.grib_path,
@@ -97,6 +139,13 @@ class Grib2NC(object):
                 index_df = grib_file_desc
             else:
                 index_df = index_df.append(grib_file_desc, ignore_index=True)
+
+        if index_df['grib_level'].dtype == float:
+            mapping = {}
+            for i, floatnum  in enumerate(sorted(index_df['grib_level'].unique())):
+                mapping[floatnum] = i+1
+                
+            index_df['grib_level'] = index_df['grib_level'].map(mapping)
                 
         self.index_df = index_df
         return index_df
@@ -114,8 +163,26 @@ class Grib2NC(object):
                 grbs = pygrib.open(os.path.join(self.grib_path, filename))
                 grb = grbs[1]
             except IOError:
-                continue
-            lats, lons = grb.latlons()
+                try:
+                    grbs = pygrib.open(os.path.join(self.grib_path, 
+                                                    filename+'.grib2'))
+                    grb = grbs[1]
+                except IOError:
+                    continue
+
+            if 'ELON'  in self.index_df['field'] and 'NLAT' in self.index_df['field']:
+                lats_ind = self.index_df[(self.index_df['field'] == 'NLAT') &
+                                     (self.index_df['filename'] == filename)].grib_level
+                lats = grbs[lats_ind].values
+
+                lons_ind = self.index_df[(self.index_df['field'] == 'ELON') &
+                                     (self.index_df['filename'] == filename)].grib_level
+                lons = grbs[lons_ind].values
+
+                self.index_df = self.index_df[(self.index_df['field'] != 'ELON') 
+                                              & (self.index_df['field'] !='NLAT')]
+            else:
+                lats, lons = grb.latlons()
 
             lat1 = self.config.getint('subdomain', 'lat1')
             lat2 = self.config.getint('subdomain', 'lat2')
@@ -129,6 +196,9 @@ class Grib2NC(object):
                                         & (lons <= lon2))[0].mean())]
             latlims = np.where((clats >= lat1) & (clats <= lat2))[0]
             lonlims = np.where((clons >= lon1) & (clons <= lon2))[0]
+            start_date = grb.analDate
+            dx = grb.Dx*1.0/1000
+            dy = grb.Dy*1.0/1000
             grbs.close()
             break
         
@@ -137,6 +207,7 @@ class Grib2NC(object):
         self.max_lon = lonlims.max() + 1
         self.min_lon = lonlims.min()
 
+        # move vvel somewhere in config
         if self.vertical:
             nvert = self.index_df.groupby(['filename', 'field']
                                           ).size().loc[:,'VVEL'].iloc[0]
@@ -144,6 +215,7 @@ class Grib2NC(object):
             nvert=None
 
         path = os.path.join(self.netcdf_path, self.ncfilename)
+        # check here if it already exists and just append
         self.ncwriter = NCWriter()
         self.ncwriter.make_netcdf(path, self.max_lat-self.min_lat,
             self.max_lon-self.min_lon, self.vertical,nvert)
@@ -152,6 +224,13 @@ class Grib2NC(object):
                                                 self.min_lon:self.max_lon], 0)
         self.ncwriter.set_variable('XLONG', lons[self.min_lat:self.max_lat,
                                                  self.min_lon:self.max_lon], 0)
+        self.ncwriter.set_attribute('START_DATE', 
+                                    start_date.strftime('%Y-%m-%d_%H:%M:%S'))
+        self.ncwriter.set_attribute('DX', dx)
+        self.ncwriter.set_attribute('DY', dy)
+        self.ncwriter.set_attribute('WEST-EAST_GRID_DIMENSION', self.max_lon-self.min_lon + 1)
+        self.ncwriter.set_attribute('SOUTH-NORTH_GRID_DIMENSION', self.max_lat-self.min_lat + 1)
+        self.ncwriter.set_attribute('BOTTOM-TOP_GRID_DIMENSION', nvert or 0)
 
     def load_into_netcdf(self):
         """Load the grib files into the netCDF file that has been setup
@@ -195,7 +274,12 @@ class Grib2NC(object):
             try:
                 grbs = pygrib.open(os.path.join(self.grib_path, filename))
             except IOError:
-                continue
+                try:
+                    grbs = pygrib.open(os.path.join(self.grib_path, 
+                                                    filename+'.grib2'))
+                except IOError:
+                    continue
+
 
             for filename, series in relevant_df.loc[filename].iterrows():
                 try:
@@ -255,6 +339,7 @@ class Grib2NC(object):
                                 'P',(np.ones(ivals.shape) * grb.level),
                                 [timed, leveld])
         self.ncwriter.close()
+        return os.path.join(self.netcdf_path, self.ncfilename)
                         
 class NCWriter(object):
     """NCWriter handles all the writing and setup of the netCDF file
@@ -359,6 +444,19 @@ class NCWriter(object):
         var = self.netc.variables[var_name]
         var[position] = data
         return var
+
+    def set_attribute(self, attr_name, value):
+        """Set file attributes
+        
+        Parameters
+        ----------
+        attr_name: str
+            attribute name
+        value : str or int or float
+            value of the attribute
+        """
+        self.logger.debug('Setting attribute {} to {}'.format(attr_name, value))
+        self.netc.setncattr(attr_name, value)
 
     def check_variable(self, var_name):
         """Check if the variable has been added to the file yet
