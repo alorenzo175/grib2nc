@@ -16,6 +16,7 @@ import time
 import fcntl
 import argparse
 import warnings
+import re
 try:
     import ConfigParser as configparser
 except ImportError:
@@ -295,18 +296,24 @@ def check_availability(config_path, levels):
             dfs.append(pd.io.html.read_html(site, header=0,
                                             flavor='bs4')[0])
     avail_df = pd.concat(dfs, ignore_index=True)
-    utcdate = dt.datetime.utcnow().date()
-    newi = [dt.datetime.combine(utcdate, 
-                                dt.datetime.strptime(e, '%H UTC HRRR').time()) 
-            for e in avail_df['EVENT']]
-    newi[-1] = newi[-1] - dt.timedelta(days=1)
-    avail_df.index = pd.Index(newi)
+    if 'ncep' in avail_sites:
+        utcdate = dt.datetime.utcnow().date()
+        newi = [dt.datetime.combine(
+            utcdate, dt.datetime.strptime(e, '%H UTC HRRR').time()) 
+                for e in avail_df['EVENT']]
+        newi[-1] = newi[-1] - dt.timedelta(days=1)
+        avail_df.index = pd.Index(newi)
+        invalid = [ind for ind, val in avail_df['STATUS'].iteritems()
+                   if not "COMPLETE" in val or 
+                   ind > dt.datetime.utcnow()]
+    elif 'ruc.noaa.gov/hrrr' in avail_sites:
+        avail_df = avail_df.set_index('Run Time')
+        invalid = [ind for ind, val in avail_df['Status'].iteritems() 
+                   if re.match('Not(.*)Available', val) is not None]
+    else:
+        raise ValueError('Site must be the NCEP or ESRL sites for now')
 
-    invalid = [i for i, val in enumerate(avail_df['STATUS']) 
-               if not "COMPLETE" in val or 
-               avail_df.index[i] > dt.datetime.utcnow()]
-    avail_df.iloc[invalid] = np.nan
-    avail_df = avail_df.dropna()
+    avail_df.drop(invalid, inplace=True)
 
     netcdf_folder = config.get('download_settings', 'netcdf_base_folder')
     netcdf_filename = config.get('download_settings', 'netcdf_filename')
@@ -328,14 +335,13 @@ def check_availability(config_path, levels):
                 if os.path.isfile(os.path.join(netcdf_path, ncfilename)):
                     lsers[level].loc[atime] = 1
                 
-
     avail_df = avail_df.join(pd.DataFrame(lsers))
         
     to_get = {}
+
     for level in levels:
         to_get[level] = sorted(avail_df[(avail_df[level] == 0)
                                     ].index.to_pydatetime())
-        
     return to_get
 
 
@@ -343,8 +349,8 @@ class Locker(object):
     """Places a file lock so only one instance of the program
     runs at a time
     """
-    def __init__(self, lock_path='/tmp/fetch_forecasts.lock'):
-        self.lock_path = lock_path
+    def __init__(self, lock_path=None):
+        self.lock_path = lock_path or '/tmp/fetch_forecasts.lock'
         try:
             self.locked = open(self.lock_path, 'w+')
             fcntl.lockf(self.locked, fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -379,6 +385,7 @@ def main():
                            help="Don't convert the grib files to netCDF")
     argparser.add_argument('--no-overwrite', action='store_false',
                            help="Don't overwrite any files already downloaded")
+    argparser.add_argument('--lockfile',help="Path to the lockfile")
     argparser.add_argument('--all', action='store_true',
                            help="Get all the HRRR files not already archived")
     argparser.add_argument('-i', '--init-times', 
@@ -391,7 +398,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     global lock
-    lock = Locker()
+    lock = Locker(args.lockfile)
 
     def loop(atime, alevel, args):
         f = HRRRFetcher(atime, alevel, args.protocol, 
