@@ -1,4 +1,4 @@
-version = '0.2.0'
+version = '0.3.0'
 __all__ = ['grib2nc', 'fetch_forecasts']
 
 from .grib2nc import Grib2NC, EmptyError

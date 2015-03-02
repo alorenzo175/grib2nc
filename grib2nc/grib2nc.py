@@ -71,7 +71,8 @@ class Grib2NC(object):
 
         self.grib_path = grib_path or self.download_dict['grib_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
-            day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
+            day=init_time.strftime('%d'), hour=init_time.strftime('%H'),
+            level=level)
 
         self.netcdf_path = netcdf_path or self.download_dict['netcdf_base_folder'].format( 
             year=init_time.strftime('%Y'), month=init_time.strftime('%m'),
@@ -91,7 +92,7 @@ class Grib2NC(object):
             raise EmptyError('No .grib2 files in path {}'.format(
                 self.grib_path))
         for afile in grib2_files:
-            command = '{wgrib} -s {file} > {new_file}'.format(
+            command = '{wgrib} -set center 7 -s {file} > {new_file}'.format(
                 wgrib=WRGRIB2, file=os.path.join(self.grib_path,afile)
                 , new_file=os.path.join(self.grib_path,afile[:-6]+'.idx'))
             try:
@@ -113,7 +114,7 @@ class Grib2NC(object):
         if not idx_files:
             self.make_index_files()
             idx_files = [afile for afile in os.listdir(self.grib_path) 
-                         if afile.endswith('.idx') and self.level in afile]
+                         if afile.endswith('.idx')]
             if not idx_files:
                 raise EmptyError('No index files found')
 

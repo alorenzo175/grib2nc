@@ -82,7 +82,8 @@ class HRRRFetcher(object):
 
         self.base_path = self.download_dict['grib_base_folder'].format( 
             year=self.init_time.strftime('%Y'), month=self.init_time.strftime('%m'),
-            day=self.init_time.strftime('%d'), hour=self.init_time.strftime('%H'))
+            day=self.init_time.strftime('%d'), hour=self.init_time.strftime('%H'),
+            level=level)
             
         if not os.path.isdir(self.base_path):
             os.makedirs(self.base_path)
@@ -140,27 +141,37 @@ class HRRRFetcher(object):
             raise ImportError('FTP fetching requires ftplib')
 
         self.logger.info('Connecting to FTP site')
-        ftp = self.connect_ftp(init_time)
+        ftp = self.connect_ftp(init_time, level)
         files = ftp.nlst(forecast_name + '*')
+        self.logger.debug('File list is {}'.format(files))
         expected_size = 0
         for afile in files:
             expected_size += ftp.size(afile)
         return (files, expected_size)
 
-    def connect_ftp(self, init_time=None):
+    def connect_ftp(self, init_time=None, level=None):
         """Connect to the FTP site and change directories
         """        
         ftp = ftplib.FTP(self.download_dict['ftp_host'], 
                          timeout=float(self.download_dict['ftp_timeout']))
-        ftp.login()
-        ftp.cwd(self.download_dict['ftp_dir'])
-        stored_days = ftp.nlst()
+        user = self.download_dict['ftp_user']
+        passwd = self.download_dict['ftp_passwd']
+        if user is None or user == '':
+            user = 'anonymous'
+        if passwd is None or passwd == '':
+            passwd = 'anonymous@'
+        ftp.login(user, passwd)
         init_time = init_time or self.init_time
-        it_date = init_time.strftime('hrrr.%Y%m%d')
-        if it_date not in stored_days:
-            raise RequestError('Requested forecast initilization day '+
-                               'not on NCEP server')
-        ftp.cwd(it_date)
+        level = level or self.level
+        ftp_dir = self.download_dict['ftp_dir'].format(
+            init_time = init_time.strftime('%Y%m%d'),
+            level=self.hrrr_type_dict[level])
+        self.logger.debug('Changing to {} dir'.format(ftp_dir))
+        try:
+            ftp.cwd(ftp_dir)
+        except ftplib.error_perm as e:
+            raise RequestError('Failed to change ftp directory to '+
+                               '{}'.format(ftp_dir))
         return ftp
 
     def fetch(self, init_time=None, level=None, overwrite=True):
@@ -169,16 +180,20 @@ class HRRRFetcher(object):
 
         level = level or self.level
         init_time = init_time or self.init_time
-        forecast_name ='hrrr.t{init_hour}z.{level}f'.format(
+        forecast_name =self.download_dict['forecast_name'].format(
             init_hour=init_time.strftime('%H'),
+            init_min=init_time.strftime('%M'),
+            init_yr=init_time.strftime('%y'),
+            day_of_yr=init_time.strftime('%j'),
             level=self.hrrr_type_dict[level])
+        self.logger.debug('Forecast name is {}'.format(forecast_name))
 
         html_folder = (self.download_dict['html_site'] + 
             'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
 
         def _ftp_fetch(filename, local_path):
             size = []
-            ftp = self.connect_ftp(init_time)
+            ftp = self.connect_ftp(init_time, level)
             self.logger.debug('Retrieving %s' % filename)
             with open(local_path, 'wb') as f:
                 def callback(data):
@@ -221,6 +236,8 @@ class HRRRFetcher(object):
             worker_dict = {}
             for filename in files:
                 local_path = os.path.join(self.base_path,  filename)
+                if not local_path.endswith('.grib2'):
+                    local_path += '.grib2'
                 if os.path.isfile(local_path) and not overwrite:
                     self.logger.warning('%s already exists!' % filename)
                     continue

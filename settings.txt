@@ -3,9 +3,12 @@
 availability_sites = http://www.nco.ncep.noaa.gov/pmb/nwprod/prodstat_new/prdst_00-11_UTC_HRRR.html,http://www.nco.ncep.noaa.gov/pmb/nwprod/prodstat_new/prdst_12-23_UTC_HRRR.html
 html_site = http://www.ftp.ncep.noaa.gov/data/nccf/nonoperational/com/hrrr/prod/
 ftp_host = ftpprd.ncep.noaa.gov
-ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod
+ftp_user =
+ftp_passwd = 
+ftp_dir = pub/data/nccf/nonoperational/com/hrrr/prod/hrrr.{init_time}
 ftp_timeout = 300
-grib_base_folder = /home/pas/temp/hrrr/grib/{year}/{month}/{day}/{hour}z/
+forecast_name = hrrr.t{init_hour}z.{level}f
+grib_base_folder = /home/pas/temp/hrrr/grib/{year}/{month}/{day}/{hour}z/{level}
 netcdf_base_folder = /home/pas/wrf_forecast/{year}/{month}/{day}/hrrr/{hour}z/
 netcdf_filename = hrrr.{level}.nc
 workers = 8
