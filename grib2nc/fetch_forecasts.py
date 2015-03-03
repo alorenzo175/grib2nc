@@ -307,7 +307,7 @@ def check_availability(config_path, levels):
                    if not "COMPLETE" in val or 
                    ind > dt.datetime.utcnow()]
     elif 'ruc.noaa.gov/hrrr' in avail_sites:
-        avail_df = avail_df.set_index('Run Time')
+        avail_df.index = pd.DatetimeIndex(avail_df['Run Time'])
         invalid = [ind for ind, val in avail_df['Status'].iteritems() 
                    if re.match('Not(.*)Available', val) is not None]
     else:
@@ -322,7 +322,7 @@ def check_availability(config_path, levels):
     for level in levels:
         lsers[level] = pd.Series(np.zeros(len(avail_df.index)), 
                                  index=avail_df.index)
-    
+
     for atime in avail_df.index:
         netcdf_path = netcdf_folder.format(year=atime.strftime('%Y'),
                                            month=atime.strftime('%m'),
@@ -336,12 +336,14 @@ def check_availability(config_path, levels):
                     lsers[level].loc[atime] = 1
                 
     avail_df = avail_df.join(pd.DataFrame(lsers))
-        
+    logging.debug(avail_df)
     to_get = {}
 
     for level in levels:
         to_get[level] = sorted(avail_df[(avail_df[level] == 0)
                                     ].index.to_pydatetime())
+    logging.debug('Getting {}'.format(to_get))
+
     return to_get
 
 
