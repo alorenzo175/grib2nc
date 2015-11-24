@@ -40,7 +40,7 @@ class RequestError(Exception):
 
 class HRRRFetcher(object):
     """Fetch the specified HRRR forecasts from the NCEP servers
-    
+
     Parameters
     ----------
     init_time : str or datetime
@@ -52,7 +52,7 @@ class HRRRFetcher(object):
     config_path : str
         Path to the config file
     """
-    def __init__(self, init_time, level, method='ftp', config_path=None, 
+    def __init__(self, init_time, level, method='ftp', config_path=None,
                  threads=None):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
@@ -66,7 +66,7 @@ class HRRRFetcher(object):
             raise Exception
         else:
             self.level = level
-        
+
         if isinstance(init_time, str):
             try:
                 import dateutil.parser as dparser
@@ -81,13 +81,13 @@ class HRRRFetcher(object):
 
         self.default_method = method
 
-        self.base_path = self.download_dict['grib_base_folder'].format( 
+        self.base_path = self.download_dict['grib_base_folder'].format(
             year=self.init_time.strftime('%Y'), month=self.init_time.strftime('%m'),
             day=self.init_time.strftime('%d'), hour=self.init_time.strftime('%H'),
             level=level)
-            
+
         if not os.path.isdir(self.base_path):
-            os.makedirs(self.base_path)
+            os.makedirs(self.base_path, mode=0o2775)
         self.downloaded_files = []
 
         self.nthreads = threads or self.config.getint(
@@ -103,24 +103,24 @@ class HRRRFetcher(object):
             logging.getLogger('requests.packages.urllib3'
                               ).setLevel(logging.WARNING)
 
-        html_folder = (self.download_dict['html_site'] + 
+        html_folder = (self.download_dict['html_site'] +
             'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
 
         forecast_table = requests.get(html_folder)
 
         if forecast_table.status_code != 200:
             raise RequestError('Invalid URL/date')
-            
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             table = pd.io.html.read_html(forecast_table.content,
                                          header=0, parse_dates=True,
                                          infer_types=False)[0]
-            
-        
+
+
         files_df= table[table['Name'].str.contains(
             forecast_name)]
-        
+
         def process_size(size):
             if size.endswith('K'):
                 out = float(size[:-1])*1024
@@ -152,8 +152,8 @@ class HRRRFetcher(object):
 
     def connect_ftp(self, init_time=None, level=None):
         """Connect to the FTP site and change directories
-        """        
-        ftp = ftplib.FTP(self.download_dict['ftp_host'], 
+        """
+        ftp = ftplib.FTP(self.download_dict['ftp_host'],
                          timeout=float(self.download_dict['ftp_timeout']))
         user = self.download_dict['ftp_user']
         passwd = self.download_dict['ftp_passwd']
@@ -189,7 +189,7 @@ class HRRRFetcher(object):
             level=self.hrrr_type_dict[level])
         self.logger.debug('Forecast name is {}'.format(forecast_name))
 
-        html_folder = (self.download_dict['html_site'] + 
+        html_folder = (self.download_dict['html_site'] +
             'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
 
         def _ftp_fetch(filename, local_path):
@@ -224,10 +224,10 @@ class HRRRFetcher(object):
                 init_time, level, forecast_name)
             fetcher = _http_fetch
         else:
-            raise AttributeError('method must be ftp or http not %s' % 
+            raise AttributeError('method must be ftp or http not %s' %
                                  self.default_method)
-        
-        self.logger.info('Downloading %0.2f MB of data for forecast %s' 
+
+        self.logger.info('Downloading %0.2f MB of data for forecast %s'
                          % ((1.0*expected_size/1024**2), forecast_name))
 
         total_size = 0
@@ -272,11 +272,11 @@ class HRRRFetcher(object):
                     self.downloaded_files.append(local_path)
                     total_size += size
                     nfiles += 1
-                    
+
         end = time.time()
-        self.logger.info('Retrieved %s files in %0.1f seconds' % 
+        self.logger.info('Retrieved %s files in %0.1f seconds' %
                          (nfiles, end-start))
-        self.logger.info('Approx. download rate: %0.2f MB/s' % 
+        self.logger.info('Approx. download rate: %0.2f MB/s' %
                          (1.0*total_size/1024**2/(end-start)))
         self.logger.debug('Files retrieved are %s' % self.downloaded_files)
 
@@ -285,7 +285,7 @@ def check_availability(config_path, levels):
     """Check the HRRR availability website and compare
     to already archived forecasts to fetch new forecasts
     """
-    
+
     config = configparser.ConfigParser()
     config.read(config_path)
     avail_sites = config.get('download_settings', 'availability_sites')
@@ -299,16 +299,16 @@ def check_availability(config_path, levels):
     if 'ncep' in avail_sites:
         utcdate = dt.datetime.utcnow().date()
         newi = [dt.datetime.combine(
-            utcdate, dt.datetime.strptime(e, '%H UTC HRRR').time()) 
+            utcdate, dt.datetime.strptime(e, '%H UTC HRRR').time())
                 for e in avail_df['EVENT']]
         newi[-1] = newi[-1] - dt.timedelta(days=1)
         avail_df.index = pd.Index(newi)
         invalid = [ind for ind, val in avail_df['STATUS'].iteritems()
-                   if not "COMPLETE" in val or 
+                   if not "COMPLETE" in val or
                    ind > dt.datetime.utcnow()]
     elif 'ruc.noaa.gov/hrrr' in avail_sites:
         avail_df.index = pd.DatetimeIndex(avail_df['Run Time'])
-        invalid = [ind for ind, val in avail_df['Status'].iteritems() 
+        invalid = [ind for ind, val in avail_df['Status'].iteritems()
                    if re.match('Not(.*)Available', val) is not None]
     else:
         raise ValueError('Site must be the NCEP or ESRL sites for now')
@@ -320,7 +320,7 @@ def check_availability(config_path, levels):
 
     lsers = {}
     for level in levels:
-        lsers[level] = pd.Series(np.zeros(len(avail_df.index)), 
+        lsers[level] = pd.Series(np.zeros(len(avail_df.index)),
                                  index=avail_df.index)
 
     for atime in avail_df.index:
@@ -330,11 +330,11 @@ def check_availability(config_path, levels):
                                            hour=atime.strftime('%H'))
         if os.path.isdir(netcdf_path):
             for level in levels:
-                ncfilename = netcdf_filename.format(level=level, 
+                ncfilename = netcdf_filename.format(level=level,
                     init_time=atime.strftime('%Y%m%d%H'))
                 if os.path.isfile(os.path.join(netcdf_path, ncfilename)):
                     lsers[level].loc[atime] = 1
-                
+
     avail_df = avail_df.join(pd.DataFrame(lsers))
     logging.debug(avail_df)
     to_get = {}
@@ -357,7 +357,7 @@ class Locker(object):
             self.locked = open(self.lock_path, 'w+')
             fcntl.lockf(self.locked, fcntl.LOCK_EX|fcntl.LOCK_NB)
         except IOError:
-            logging.debug('File (%s) locked. Program probably running.' % 
+            logging.debug('File (%s) locked. Program probably running.' %
                           self.lock_path)
             sys.exit(0)
     def unlock(self):
@@ -370,7 +370,7 @@ def main():
 
     argparser = argparse.ArgumentParser(
         description='Download HRRR grib files and store select fields in netCDF format')
-    
+
     argparser.add_argument('-v', '--verbose', help='Increase logging verbosity',
                            action='count')
     argparser.add_argument('-p', '--protocol', help='Download protocol',
@@ -390,10 +390,10 @@ def main():
     argparser.add_argument('--lockfile',help="Path to the lockfile")
     argparser.add_argument('--all', action='store_true',
                            help="Get all the HRRR files not already archived")
-    argparser.add_argument('-i', '--init-times', 
+    argparser.add_argument('-i', '--init-times',
         help='Initilization datetimes; split multiple with commas')
     args = argparser.parse_args()
-    
+
     if args.verbose == 1:
         logging.getLogger().setLevel(logging.INFO)
     elif args.verbose > 1:
@@ -403,7 +403,7 @@ def main():
     lock = Locker(args.lockfile)
 
     def loop(atime, alevel, args):
-        f = HRRRFetcher(atime, alevel, args.protocol, 
+        f = HRRRFetcher(atime, alevel, args.protocol,
                         args.config, args.threads)
         f.fetch(overwrite=args.no_overwrite)
 
