@@ -79,9 +79,13 @@ class Grib2NC(object):
             day=init_time.strftime('%d'), hour=init_time.strftime('%H'))
 
         if not os.path.isdir(self.grib_path):
-            os.makedirs(self.grib_path)
+            old_umask = os.umask(0)
+            os.makedirs(self.grib_path, mode=0o775)
+            os.umask(old_umask)
         if not os.path.isdir(self.netcdf_path):
-            os.makedirs(self.netcdf_path)
+            old_umask = os.umask(0)
+            os.makedirs(self.netcdf_path, mode=0o775)
+            os.umask(old_umask)
         self.ncfilename = ncfilename or self.download_dict['netcdf_filename'].format(
             init_time=init_time.strftime('%Y%m%d%H'), level=level)
 
