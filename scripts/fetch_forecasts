@@ -1,0 +1,5 @@
+#! /usr/bin/env python
+
+import grib2nc
+
+grib2nc.fetch_forecasts.main()

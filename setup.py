@@ -1,5 +1,10 @@
+import os
 import sys
-from setuptools import setup, find_packages
+try:
+
+    from setuptools import setup, find_packages
+except ImportError:
+    raise RuntimeError('setuptools is required')
 
 
 import versioneer
@@ -12,7 +17,7 @@ if sys.version_info[:2] < (2, 7):
     sys.exit('%s requires Python 2.7 or higher.' % PACKAGE)
 
 
-requirements = ['numpy', 'pandas', 'pygrib', 'netCDF4']
+requirements = ['numpy', 'pandas', 'pygrib', 'netCDF4', 'setuptools']
 if sys.version_info[:2] < (3, 2):
     requirements.append('futures')
 
@@ -33,4 +38,6 @@ setup(
     url=URL,
     packages=find_packages(),
     install_requires=requirements,
-    include_package_data=True)
+    include_package_data=True,
+    data_files=[('.', ['./settings.txt'])],
+    scripts=[os.path.join('scripts', s) for s in os.listdir('scripts')])

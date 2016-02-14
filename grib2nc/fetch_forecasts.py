@@ -23,6 +23,7 @@ except ImportError:
     import configparser
 
 
+from pkg_resources import resource_filename, Requirement
 import pandas as pd
 import numpy as np
 try:
@@ -58,9 +59,11 @@ class HRRRFetcher(object):
                  threads=None):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
-        self.config_path = config_path or os.path.join(
-            os.path.dirname(os.path.realpath('__file__')), '..'
-            'settings.txt')
+        if config_path is not None:
+            self.config_path = config_path
+        else:
+            self.config_path = resource_filename(
+                Requirement.parse('grib2nc'), 'settings.txt')
         self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
@@ -385,8 +388,7 @@ def main():
                            help='Increase logging verbosity')
     argparser.add_argument('-p', '--protocol', help='Download protocol',
                            choices=['ftp', 'http'], default='ftp')
-    argparser.add_argument('-c', '--config', help='Config file path',
-                           default='../settings.txt')
+    argparser.add_argument('-c', '--config', help='Config file path')
     argparser.add_argument('-l', '--levels', default='subhourly',
                            help='HRRR level subtype; split with commas')
     argparser.add_argument('-r', '--remove', action='store_true',

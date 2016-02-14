@@ -19,6 +19,7 @@ except ImportError:
 import subprocess
 
 
+from pkg_resources import resource_filename, Requirement
 import numpy as np
 import pandas as pd
 import pygrib
@@ -52,9 +53,11 @@ class Grib2NC(object):
                  netcdf_path=None, ncfilename=None):
         self.logger = logging.getLogger()
         self.config = configparser.ConfigParser()
-        self.config_path = config_path or os.path.join(
-            os.path.dirname(os.path.realpath('__file__')), '..',
-            'settings.txt')
+        if config_path is not None:
+            self.config_path = config_path
+        else:
+            self.config_path = resource_filename(
+                Requirement.parse('grib2nc'), 'settings.txt')
         self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
         self.hrrr_type_dict = dict(self.config.items('output_types'))
@@ -93,8 +96,10 @@ class Grib2NC(object):
             old_umask = os.umask(0)
             os.makedirs(self.netcdf_path, mode=0o775)
             os.umask(old_umask)
-        self.ncfilename = ncfilename or self.download_dict['netcdf_filename'].format(
-            init_time=init_time.strftime('%Y%m%d%H'), level=level)
+        self.ncfilename = (ncfilename or
+                           self.download_dict['netcdf_filename'].format(
+                               init_time=init_time.strftime('%Y%m%d%H'),
+                               level=level))
 
     def make_index_files(self):
         grib2_files = [afile for afile in os.listdir(self.grib_path)
