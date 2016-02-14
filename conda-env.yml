@@ -1,0 +1,11 @@
+name: grib2nc
+dependencies:
+  - python
+  - setuptools
+  - pyproj
+  - numpy
+  - pandas
+  - netcdf4
+  - futures
+  - pip:
+      - pygrib
