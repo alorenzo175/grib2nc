@@ -34,6 +34,7 @@ except ImportError:
 class RequestError(Exception):
     def __init__(self, value):
         self.value = value
+
     def __str__(self):
         return repr(self.value)
 
@@ -46,7 +47,8 @@ class HRRRFetcher(object):
     init_time : str or datetime
         Initilization time of the forecast you want
     level : str
-        "Level" of the HRRR forecast i.e. surface, subhourly, native, or pressure
+        "Level" of the HRRR forecast i.e. surface, subhourly, native, or
+        pressure
     method : str
         Method/protocol to download files. Currently ftp or http
     config_path : str
@@ -57,7 +59,7 @@ class HRRRFetcher(object):
         self.logger = logging.getLogger('HRRRFetcher')
         self.config = configparser.ConfigParser()
         self.config_path = config_path or os.path.join(
-            os.path.dirname(os.path.realpath('__file__')),'..'
+            os.path.dirname(os.path.realpath('__file__')), '..'
             'settings.txt')
         self.config.read(self.config_path)
         self.download_dict = dict(self.config.items('download_settings'))
@@ -77,13 +79,16 @@ class HRRRFetcher(object):
         elif isinstance(init_time, dt.datetime):
             self.init_time = init_time
         else:
-            raise TypeError('init_time must be a datetime string or datetime object')
+            raise TypeError(
+                'init_time must be a datetime string or datetime object')
 
         self.default_method = method
 
         self.base_path = self.download_dict['grib_base_folder'].format(
-            year=self.init_time.strftime('%Y'), month=self.init_time.strftime('%m'),
-            day=self.init_time.strftime('%d'), hour=self.init_time.strftime('%H'),
+            year=self.init_time.strftime('%Y'),
+            month=self.init_time.strftime('%m'),
+            day=self.init_time.strftime('%d'),
+            hour=self.init_time.strftime('%H'),
             level=level)
 
         if not os.path.isdir(self.base_path):
@@ -104,7 +109,8 @@ class HRRRFetcher(object):
                               ).setLevel(logging.WARNING)
 
         html_folder = (self.download_dict['html_site'] +
-            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
+                       'hrrr.{dtime}'.format(
+                           dtime=init_time.strftime('%Y%m%d')))
 
         forecast_table = requests.get(html_folder)
 
@@ -117,8 +123,7 @@ class HRRRFetcher(object):
                                          header=0, parse_dates=True,
                                          infer_types=False)[0]
 
-
-        files_df= table[table['Name'].str.contains(
+        files_df = table[table['Name'].str.contains(
             forecast_name)]
 
         def process_size(size):
@@ -137,7 +142,7 @@ class HRRRFetcher(object):
     def _ftp_setup(self, init_time, level, forecast_name):
         try:
             global ftplib
-            import ftplib
+            import ftplib  # NOQA
         except ImportError:
             raise ImportError('FTP fetching requires ftplib')
 
@@ -165,13 +170,13 @@ class HRRRFetcher(object):
         init_time = init_time or self.init_time
         level = level or self.level
         ftp_dir = self.download_dict['ftp_dir'].format(
-            init_time = init_time.strftime('%Y%m%d'),
+            init_time=init_time.strftime('%Y%m%d'),
             level=self.hrrr_type_dict[level])
         self.logger.debug('Changing to {} dir'.format(ftp_dir))
         try:
             ftp.cwd(ftp_dir)
-        except ftplib.error_perm as e:
-            raise RequestError('Failed to change ftp directory to '+
+        except ftplib.error_perm:
+            raise RequestError('Failed to change ftp directory to ' +
                                '{}'.format(ftp_dir))
         return ftp
 
@@ -181,7 +186,7 @@ class HRRRFetcher(object):
 
         level = level or self.level
         init_time = init_time or self.init_time
-        forecast_name =self.download_dict['forecast_name'].format(
+        forecast_name = self.download_dict['forecast_name'].format(
             init_hour=init_time.strftime('%H'),
             init_min=init_time.strftime('%M'),
             init_yr=init_time.strftime('%y'),
@@ -190,7 +195,8 @@ class HRRRFetcher(object):
         self.logger.debug('Forecast name is {}'.format(forecast_name))
 
         html_folder = (self.download_dict['html_site'] +
-            'hrrr.{dtime}'.format(dtime=init_time.strftime('%Y%m%d')))
+                       'hrrr.{dtime}'.format(
+                           dtime=init_time.strftime('%Y%m%d')))
 
         def _ftp_fetch(filename, local_path):
             size = []
@@ -252,8 +258,9 @@ class HRRRFetcher(object):
 
                 try:
                     size = future.result()
-                except Exception as e:
-                    self.logger.exception('Exception when fetching %s' % thefile)
+                except Exception:
+                    self.logger.exception('Exception when fetching %s' %
+                                          thefile)
                     requeue.append((thefile, local_path))
                 else:
                     self.downloaded_files.append(local_path)
@@ -266,7 +273,7 @@ class HRRRFetcher(object):
                 self.logger.info('Trying to refetch %s' % filename)
                 try:
                     size = fetcher(filename, local_path)
-                except Exception as e:
+                except Exception:
                     self.logger.exception('Failed to retrieve %s' % filename)
                 else:
                     self.downloaded_files.append(local_path)
@@ -304,7 +311,7 @@ def check_availability(config_path, levels):
         newi[-1] = newi[-1] - dt.timedelta(days=1)
         avail_df.index = pd.Index(newi)
         invalid = [ind for ind, val in avail_df['STATUS'].iteritems()
-                   if not "COMPLETE" in val or
+                   if "COMPLETE" not in val or
                    ind > dt.datetime.utcnow()]
     elif 'ruc.noaa.gov/hrrr' in avail_sites:
         avail_df.index = pd.DatetimeIndex(avail_df['Run Time'])
@@ -330,8 +337,8 @@ def check_availability(config_path, levels):
                                            hour=atime.strftime('%H'))
         if os.path.isdir(netcdf_path):
             for level in levels:
-                ncfilename = netcdf_filename.format(level=level,
-                    init_time=atime.strftime('%Y%m%d%H'))
+                ncfilename = netcdf_filename.format(
+                    level=level, init_time=atime.strftime('%Y%m%d%H'))
                 if os.path.isfile(os.path.join(netcdf_path, ncfilename)):
                     lsers[level].loc[atime] = 1
 
@@ -340,8 +347,8 @@ def check_availability(config_path, levels):
     to_get = {}
 
     for level in levels:
-        to_get[level] = sorted(avail_df[(avail_df[level] == 0)
-                                    ].index.to_pydatetime())
+        to_get[level] = sorted(
+            avail_df[(avail_df[level] == 0)].index.to_pydatetime())
     logging.debug('Getting {}'.format(to_get))
 
     return to_get
@@ -355,11 +362,12 @@ class Locker(object):
         self.lock_path = lock_path or '/tmp/fetch_forecasts.lock'
         try:
             self.locked = open(self.lock_path, 'w+')
-            fcntl.lockf(self.locked, fcntl.LOCK_EX|fcntl.LOCK_NB)
+            fcntl.lockf(self.locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except IOError:
             logging.debug('File (%s) locked. Program probably running.' %
                           self.lock_path)
             sys.exit(0)
+
     def unlock(self):
         fcntl.lockf(self.locked, fcntl.LOCK_UN)
         os.remove(self.lock_path)
@@ -369,16 +377,16 @@ def main():
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
 
     argparser = argparse.ArgumentParser(
-        description='Download HRRR grib files and store select fields in netCDF format')
+        description='Download HRRR grib files and store select fields in netCDF format')  # NOQA
 
-    argparser.add_argument('-v', '--verbose', help='Increase logging verbosity',
-                           action='count')
+    argparser.add_argument('-v', '--verbose', action='count',
+                           help='Increase logging verbosity')
     argparser.add_argument('-p', '--protocol', help='Download protocol',
                            choices=['ftp', 'http'], default='ftp')
     argparser.add_argument('-c', '--config', help='Config file path',
                            default='../settings.txt')
     argparser.add_argument('-l', '--levels', default='subhourly',
-                           help='HRRR level subtype; split multiple with commas')
+                           help='HRRR level subtype; split with commas')
     argparser.add_argument('-r', '--remove', action='store_true',
                            help='Remove grib files after conversion')
     argparser.add_argument('-t', '--threads', type=int,
@@ -387,10 +395,11 @@ def main():
                            help="Don't convert the grib files to netCDF")
     argparser.add_argument('--no-overwrite', action='store_false',
                            help="Don't overwrite any files already downloaded")
-    argparser.add_argument('--lockfile',help="Path to the lockfile")
+    argparser.add_argument('--lockfile', help="Path to the lockfile")
     argparser.add_argument('--all', action='store_true',
                            help="Get all the HRRR files not already archived")
-    argparser.add_argument('-i', '--init-times',
+    argparser.add_argument(
+        '-i', '--init-times',
         help='Initilization datetimes; split multiple with commas')
     args = argparser.parse_args()
 
@@ -421,7 +430,6 @@ def main():
                 if not os.listdir(os.path.dirname(apath)):
                     os.rmdir(os.path.dirname(apath))
 
-
     if args.all:
         files_to_get = check_availability(args.config, args.levels.split(','))
         for alevel, thetimes in files_to_get.items():
@@ -430,7 +438,7 @@ def main():
     elif args.init_times is not None:
         for atime in args.init_times.split(','):
             for alevel in args.levels.split(','):
-                loop(atime,alevel, args)
+                loop(atime, alevel, args)
     else:
         argparser.error('Either --all or -i/--init-times must be specified')
     lock.unlock()
