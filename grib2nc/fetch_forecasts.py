@@ -92,7 +92,9 @@ class HRRRFetcher(object):
             level=level)
 
         if not os.path.isdir(self.base_path):
-            os.makedirs(self.base_path, mode=0o2775)
+            old_umask = os.umask(0)
+            os.makedirs(self.base_path, mode=0o775)
+            os.umask(old_umask)
         self.downloaded_files = []
 
         self.nthreads = threads or self.config.getint(
@@ -403,7 +405,6 @@ def main():
         help='Initilization datetimes; split multiple with commas')
     args = argparser.parse_args()
 
-    os.umask(0)
 
     if args.verbose == 1:
         logging.getLogger().setLevel(logging.INFO)
