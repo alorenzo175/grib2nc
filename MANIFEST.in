@@ -1,2 +1,3 @@
 include versioneer.py
 include grib2nc/_version.py
+include settings.txt
